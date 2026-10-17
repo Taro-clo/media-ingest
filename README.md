@@ -38,7 +38,7 @@
 
 | 项           | 要求                                                                                                               |
 | ------------ | ------------------------------------------------------------------------------------------------------------------ |
-| 系统         | 任意 Linux（NAS、服务器、PC），x86_64 或 arm64                                                                     |
+| 系统         | 任意 Linux（服务器、PC、迷你主机等），x86_64 或 arm64                                                              |
 | 运行时       | Docker 20.10+ 与 Docker Compose v2                                                                                 |
 | 镜像         | 预构建多架构镜像 `ghcr.io/taro-clo/media-ingest`（linux/amd64、linux/arm64，按宿主自动选择）；镜像部署无需本地构建 |
 | **关键前提** | **下载目录与媒体库必须在同一个挂载点内** —— 硬链接的内核限制；拆成两个挂载会报 `Invalid cross-device link`         |
@@ -199,16 +199,18 @@ docker compose -f docker-compose.release.yml up -d
 docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) 即成功
 ```
 
-默认值（不改文件、不建 `.env` 也能跑，但媒体目录会按 `/vol1/1000` 找）：
+**4. 浏览器打开 http://\<部署宿主机 的 IP>:18081，出现首次设置用户名和密码的界面即成功**
 
-| 项                  | 默认                                       | 改法（改 compose 锚点，或设同名环境变量）                      |
-| ------------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| 镜像版本            | `latest`（跟随最新发布）                   | `MLM_VERSION=1.0.0`（钉住固定版本）                            |
-| 媒体共同父目录      | `/vol1/1000`                               | `x-media-root`（或 `MEDIA_ROOT=/你的/路径`）                   |
-| 数据目录（`/data`） | compose 同目录的 `./data`                  | `x-data-dir`（或 `MLM_DATA_DIR=/你的/路径/media-ingest/data`） |
-| 运行身份            | `auto`（按媒体目录属主识别）               | `PUID=1000 PGID=1000`                                          |
-| 端口                | `18081`                                    | `x-port`（或 `PORT=18099`）                                    |
-| 路径映射            | 空 = 恒等                                  | 容器内路径 ≠ 宿主路径时才需要 `HOST_PATH_MAP`                  |
+默认值（不改文件、不建 `.env` 也能跑，但媒体目录会按 `/vol1/1000` 挂载）：
+
+| 项                  | 默认                         | 改法（改 compose 锚点，或设同名环境变量）                      |
+| ------------------- | ---------------------------- | -------------------------------------------------------------- |
+| 镜像版本            | `latest`（跟随最新发布）     | `MLM_VERSION=1.0.0`（钉住固定版本）                            |
+| 媒体共同父目录      | `/vol1/1000`                 | `x-media-root`（或 `MEDIA_ROOT=/你的/路径`）                   |
+| 数据目录（`/data`） | compose 同目录的 `./data`    | `x-data-dir`（或 `MLM_DATA_DIR=/你的/路径/media-ingest/data`） |
+| 运行身份            | `auto`（按媒体目录属主识别） | `PUID=1000 PGID=1000`                                          |
+| 端口                | `18081`                      | `x-port`（或 `PORT=18099`）                                    |
+| 路径映射            | 空 = 恒等                    | 容器内路径 ≠ 宿主路径时才需要 `HOST_PATH_MAP`                  |
 
 - `MEDIA_ROOT` 必须是宿主上**已存在**的目录，且下载目录与媒体库都在它下面（硬链接的硬前提）。
 - 镜像默认 `latest`：每次发布都会更新，重装 / 重建容器时可能拿到新版本；想钉住某次发布就设 `MLM_VERSION=1.0.0`（改锚点、写 `.env` 或命令前加变量都行；版本号见 [Releases](https://github.com/Taro-clo/media-ingest/releases) 与 [`work/CHANGELOG.md`](work/CHANGELOG.md)）。
@@ -217,13 +219,13 @@ docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) �
 - 想从源码构建（改代码 / 访问不了 GHCR）：见下方「快速开始（从源码构建）」。
 
 > 失败排查、升级回滚与备份见 [`work/docs/guides/DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md)；
-> 从零开始的完整演练见 [`work/examples/nas-deploy.md`](work/examples/nas-deploy.md)。
+> 从零开始的完整演练见 [部署实战演练](work/examples/nas-deploy.md)。
 
 ## 快速开始（从源码构建）
 
-适合需要改代码、或无法访问 GHCR 的环境。以 NAS 为例（下面的宿主路径按你的实际环境修改）：
+下面的宿主路径按你的实际环境修改：
 
-1. 把 `work/` 整个目录（或发布源码包解出的内容）放到 NAS，例如 `/vol1/1000/Docker/media-ingest`；
+1. 把 `work/` 整个目录（或发布源码包解出的内容）放到宿主机，例如 `/vol1/1000/Docker/media-ingest`；
    确认 `.env` 里的 `MEDIA_ROOT`（下载目录与媒体库的共同父目录，默认 `/vol1/1000`）在宿主上**已存在**。
 
 2. 复制配置，只按需求改 `MEDIA_ROOT`（其余默认值都能用：`PUID/PGID=auto` 自动识别、数据目录 `./data`、源/目标根从 `MEDIA_ROOT` 派生）：
@@ -246,9 +248,9 @@ docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) �
    docker compose ps          # STATUS 列里要出现 (healthy)
    ```
 
-5. 浏览器打开 `http://<NAS 的 IP>:18081`，按向导创建管理员，然后新建第一个媒体库。
+5. 浏览器打开 `http://<宿主机 IP>:18081`，按向导创建管理员，然后新建第一个媒体库。
 
-> 逐条命令、预期输出的完整演练见 [`work/examples/nas-deploy.md`](work/examples/nas-deploy.md)；
+> 逐条命令、预期输出的完整演练见 [部署实战演练](work/examples/nas-deploy.md)；
 > 每个选项的详细说明见 [`work/docs/guides/DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md)。
 
 ## 第一次使用

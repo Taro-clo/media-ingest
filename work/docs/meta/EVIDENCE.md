@@ -83,7 +83,7 @@
 `200 {"matched":0,…}`；改为 `Content-Type: application/json` 时 `torrent.name` 为空 ⇒
 回调参数**只从查询串 / urlencoded 表单读**，JSON 体被静默忽略。
 
-**传输到 NAS 的注意**：部分 NAS 的 SSH 会因 PAM/MOTD 横幅让 `scp`/`sftp` 报 `Received message too long`，
+**传输到远端主机的注意**：部分设备的 SSH 会因 PAM/MOTD 横幅让 `scp`/`sftp` 报 `Received message too long`，
 可改用分块 base64 + 远端 `base64 -d`，传完校验 size 与 sha256；`.env` 在目标机上生成，
 `SECRET_KEY` 用远端 `secrets.token_hex(32)` 现算、不要经过日志，并 `chmod 600`。
 
@@ -105,6 +105,6 @@
 
 ## 8. 一条工具层教训
 
-经 PowerShell 送给 NAS 的远端命令**必须是单行**：多行脚本按原样喂进去时，
+经 PowerShell 送给远端主机的命令**必须是单行**：多行脚本按原样喂进去时，
 `eval "$(printf %s '<b64>' | base64 -d)"` 会把它压成一行执行（PowerShell 向原生命令传参时的换行处理所致），
 症状是 `TOKEN=$(...)` 之后的 `echo` 被当成 `$TOKEN` 命令的参数。传包/执行时的分块与校验一律写成单行。

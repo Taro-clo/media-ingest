@@ -9,13 +9,13 @@
 
 | 标注 | 含义 |
 |---|---|
-| **【NAS 宿主】** | 在 NAS 的 SSH 里、项目目录（示例 `/vol1/1000/Docker/media-ingest`）下执行 |
+| **【宿主机】** | 在宿主机的 SSH 里、项目目录（示例 `/vol1/1000/Docker/media-ingest`）下执行 |
 | **【容器内】** | 在容器里执行：`docker exec -it media-ingest <命令>` |
-| **【浏览器】** | 打开 `http://<NAS_IP>:18081`，在页面上操作 |
+| **【浏览器】** | 打开 `http://<HOST_IP>:18081`，在页面上操作 |
 
-后文默认：容器名/服务名 = `media-ingest`，端口 = `18081`，数据卷 = 部署目录下的 `./data`（容器内 `/data`，下称 `<data>`；可用 `MLM_DATA_DIR` 改）。`<NAS_IP>`、`/vol1/1000`、`Show A` 都是**示例值**，换成你自己的。
+后文默认：容器名/服务名 = `media-ingest`，端口 = `18081`，数据卷 = 部署目录下的 `./data`（容器内 `/data`，下称 `<data>`；可用 `MLM_DATA_DIR` 改）。`<HOST_IP>`、`/vol1/1000`、`Show A` 都是**示例值**，换成你自己的。
 
-**要调接口时**先登录一次、把会话 cookie 存成文件，后面所有 `-b cookies.txt` 都复用它（**【NAS 宿主】**，用户名/密码换成自己的）：
+**要调接口时**先登录一次、把会话 cookie 存成文件，后面所有 `-b cookies.txt` 都复用它（**【宿主机】**，用户名/密码换成自己的）：
 
 ```bash
 curl -s -c cookies.txt -X POST http://127.0.0.1:18081/api/auth/login \
@@ -38,7 +38,7 @@ curl -s -c cookies.txt -X POST http://127.0.0.1:18081/api/auth/login \
 
 **第二步：看健康检查。**
 
-**【NAS 宿主】**
+**【宿主机】**
 
 ```bash
 curl -s http://127.0.0.1:18081/api/system/health | python3 -m json.tool
@@ -56,7 +56,7 @@ curl -s http://127.0.0.1:18081/api/system/health | python3 -m json.tool
 
 **【浏览器】** 「任务」→ 点开失败的任务 →「日志」。应用日志与建链阶段的 stdout 都在这里（`stream` 为 `stdout` 的是原生实现 `app/processors/hardlink.py` 自己打印的，最接近真相）。
 
-**【NAS 宿主】** 直接看文件：
+**【宿主机】** 直接看文件：
 
 ```bash
 tail -n 80 <data>/logs/hard_links.log
@@ -83,7 +83,7 @@ docker compose logs --tail=100 media-ingest
 | 回调 `401` | [9](#9-回调返回-401hook-token-不匹配) |
 | 页面打不开 / 端口被占用 | [10](#10-端口-18081-被占用或页面打不开) |
 | 忘记密码 / 所有人被登出 | [11](#11-忘记管理员密码--所有人都被登出) |
-| ARM64 NAS 上构建或运行异常 | [12](#12-arm64aarch64nas-上的构建与运行) |
+| ARM64 主机上构建或运行异常 | [12](#12-arm64aarch64主机上的构建与运行) |
 | 容器重启后任务停住 / 卡在 `running` | [13](#13-容器重启后的队列状态) |
 | 任务一直 `queued` 不动 | [14](#14-任务长时间停在-queued) |
 | 没改名 / `ENone` / 集数认错认不出 / `Kept (no episode):` | [15](#15-文件没有被改名--名字里出现-enone) |
@@ -117,7 +117,7 @@ docker compose logs --tail=100 media-ingest
 - `result` 里 `linked: 0`、`link_failed` 等于文件数；库目录只落了一半结构。
 - 系统信息页 `same_filesystem` 为 `false`；也可能报 `true`（**假绿**，见[场景 21](#21-same_filesystem-说可以真跑却全部失败预检假绿)）。
 
-**【原因】** 判据不是"同一块盘"，而是**同一个挂载**：内核在 `do_linkat()` 里直接比较源与目标的挂载身份，不同挂载一律 `EXDEV`，与 `st_dev`、`fsid`、btrfs 子卷、ZFS dataset 是否相同**无关**。原理与各家 NAS 的实测结论见 [`COMPATIBILITY.md`](../contracts/COMPATIBILITY.md) §2。
+**【原因】** 判据不是"同一块盘"，而是**同一个挂载**：内核在 `do_linkat()` 里直接比较源与目标的挂载身份，不同挂载一律 `EXDEV`，与 `st_dev`、`fsid`、btrfs 子卷、ZFS dataset 是否相同**无关**。原理与各类宿主机的实测结论见 [`COMPATIBILITY.md`](../contracts/COMPATIBILITY.md) §2。
 
 **正确形态**：一条 `${MEDIA_ROOT:-/vol1/1000}:${MEDIA_ROOT:-/vol1/1000}` bind（`MEDIA_ROOT` 取源与目标的**共同父目录**，通常 `/vol1/1000`）+ 一条 `./data:/data`；完整 compose 见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §2。**不要把源目录再单独拆一条 `:ro` bind** —— 那会立刻退回本场景；源目录的保护改由代码层与运行期核对提供，见[场景 3](#3-源目录是可写的怎么确认应用没有动你的源文件)。
 
@@ -125,7 +125,7 @@ docker compose logs --tail=100 media-ingest
 
 **【诊断命令】**
 
-**【NAS 宿主】** 一条就能定论 —— 源与目标是不是**同一个挂载根**：
+**【宿主机】** 一条就能定论 —— 源与目标是不是**同一个挂载根**：
 
 ```bash
 findmnt -T /vol1/1000/Download/qbittorrent -o TARGET,SOURCE,FSTYPE,OPTIONS
@@ -152,7 +152,7 @@ docker exec -it media-ingest sh -c \
 
 **【解决步骤】**
 
-1. 把 compose 改成上面的**单一共同父挂载 + `/data`**（删掉 `/downloads:ro` 与 `/library` 两条），**【NAS 宿主】** `docker compose up -d`（**不要**用 `restart`，它不重读 compose 文件）。
+1. 把 compose 改成上面的**单一共同父挂载 + `/data`**（删掉 `/downloads:ro` 与 `/library` 两条），**【宿主机】** `docker compose up -d`（**不要**用 `restart`，它不重读 compose 文件）。
 2. 宿主上确认两个目录同一个挂载；容器内确认上面那条 `ln` 输出 `LINK-OK`。
 3. **【浏览器】** 点「校验」→ 应看到 `same_filesystem: true` 且 `probe.ok: true`；再点「立即运行」。**已"部分成功"的任务不用清理**：已建好的硬链接有效，重跑只补做失败的部分。
 5. 源与目标确实放不进同一个挂载（两块物理盘）时，唯一合规做法是**把其中一方搬到另一方的挂载里**；本项目**不提供**跨挂载复制模式（见 [`FAQ.md`](FAQ.md) 第 1、3 问）。
@@ -176,7 +176,7 @@ docker exec -it media-ingest sh -c \
 
 **【诊断命令】**
 
-**【NAS 宿主】**
+**【宿主机】**
 
 ```bash
 curl -s http://127.0.0.1:18081/api/system/health | python3 -m json.tool
@@ -188,7 +188,7 @@ curl -s http://127.0.0.1:18081/api/processors | python3 -m json.tool | head -n 4
 **【解决步骤】**
 
 1. `degraded` **不代表数据坏了**：先按上表定位那一项；改过 `/data/config/` 下的文件后应用会重新读取，`processors:false` 一直不消失就检查内置处理器（[场景 18](#18-处理器被删除了但媒体库还在引用)）。
-2. 修好后 **【NAS 宿主】** `docker compose up -d`，`status` 应回到 `ok`。
+2. 修好后 **【宿主机】** `docker compose up -d`，`status` 应回到 `ok`。
 
 ---
 
@@ -213,7 +213,7 @@ curl -s http://127.0.0.1:18081/api/processors | python3 -m json.tool | head -n 4
 - 若为 `false`：`changed[]` 列出**被动过**的源文件路径，`warnings[]` 里有中文告警。**这属于缺陷，请附任务 id 与这两段原文报 issue。**
 - 硬链接本身会让 `nlink`/`ctime` 变化，**这不算**源被改动（核对口径刻意排除这两个字段）。
 
-**【NAS 宿主】** 需要人工比对时，看源树最近是否被写过，并顺手确认挂载形态（应当**没有** `/downloads`/`/library` 两条独立挂载）：
+**【宿主机】** 需要人工比对时，看源树最近是否被写过，并顺手确认挂载形态（应当**没有** `/downloads`/`/library` 两条独立挂载）：
 
 ```bash
 find /vol1/1000/Download/qbittorrent -type f -newermt '-1 hour' -printf '%TY-%Tm-%Td %TH:%TM %p\n' | head -n 50
@@ -233,7 +233,7 @@ docker inspect media-ingest --format '{{range .Mounts}}{{.Source}} -> {{.Destina
 **【现象】**
 
 - 新接入的库（账本还是空的）第一次运行就全量重扫：`folders_scanned` 等于库里的文件夹数、`skipped` 为 `0`。
-- **【NAS 宿主】** `<data>/logs/hard_links.log` 不存在，或存在但没有本库源目录的记录。
+- **【宿主机】** `<data>/logs/hard_links.log` 不存在，或存在但没有本库源目录的记录。
 
 **【原因】** "这个一级文件夹处理过"的**首选依据是每库自己的账本**（数据库表 `link_records`：本库 + 同 `source_dir` + 同 `target_dir` + 同体积），执行器把这份账本当 `skip` 传给建链实现。账本从**空**开始，所以第一次接入必然全量扫描；跑过一次后第二次开始才有 `skipped`。`/data/logs/hard_links.log` 只是**审计流水**（只在没有库账本时才被当兜底判据读，见[场景 5](#5-每次运行都满屏创建硬链接失败--file-exists并且重复处理同一批文件夹)）：宿主上别处留下的同名文件**不会被继承** —— 应用只读写 `/data` 这条数据卷。
 
@@ -241,7 +241,7 @@ docker inspect media-ingest --format '{{range .Mounts}}{{.Source}} -> {{.Destina
 
 **【诊断命令】**
 
-**【NAS 宿主】**
+**【宿主机】**
 
 ```bash
 docker compose exec media-ingest ls -l /data/logs/
@@ -276,7 +276,7 @@ docker compose exec media-ingest grep -o 'Source: [^ ]*' /data/logs/hard_links.l
 
 **【诊断命令】**
 
-**【NAS 宿主】**
+**【宿主机】**
 
 ```bash
 docker compose exec media-ingest head -n 5 /data/logs/hard_links.log
@@ -287,7 +287,7 @@ docker compose exec media-ingest grep -c 'Folder:' /data/logs/hard_links.log
 **【解决步骤】**
 
 1. **先确认真的是"账本里没有"**：**【浏览器】**「作品记录」→ 选中该库 → 搜这个作品名，看有没有记录；没有 ⇒ 下次运行会重做一次（搜索是朴素子串、且只搜当前库，搜不到不等于没记录，见 [`KNOWN_ISSUES.md`](../meta/KNOWN_ISSUES.md) KI-8）。
-2. **想让审计记录与当前 `source_dir` 对齐**（可选、不影响跳过判定）：**【NAS 宿主】**
+2. **想让审计记录与当前 `source_dir` 对齐**（可选、不影响跳过判定）：**【宿主机】**
    `mv <data>/logs/hard_links.log <data>/logs/hard_links.log.bak` —— 不需要重启，下一次任务开始时会建出空日志。
 3. **别手工改日志里的 `Source:` 值**，更**绝对不要**改 `Folder size:` 的数值 —— 体积是回退路径下的幂等标记，手改会造成"该文件夹永远不处理"。
 4. `HOST_PATH_MAP` **不参与**日志匹配（它只用于展示与路径换算），改它修不好本场景。
@@ -311,7 +311,7 @@ docker compose exec media-ingest grep -c 'Folder:' /data/logs/hard_links.log
 
 **【浏览器】** 任务详情 → `result.samples.orphans_removed`，看被删的是哪些**目标**路径。
 
-**【NAS 宿主】**
+**【宿主机】**
 
 ```bash
 grep 'Deleted orphaned' <data>/logs/hard_links.log | tail -n 20
@@ -348,7 +348,7 @@ docker exec -it media-ingest id
 docker exec -it media-ingest ls -ld /data /data/logs /data/config /vol1/1000/Library /vol1/1000/Download/qbittorrent
 ```
 
-**【NAS 宿主】** 看宿主侧属主（飞牛/Debian 上常见 `uid=1000`）：
+**【宿主机】** 看宿主侧属主（飞牛/Debian 上常见 `uid=1000`）：
 
 ```bash
 stat -c '%u:%g %a %n' /vol1/1000/Docker/media-ingest/data /vol1/1000/Library
@@ -358,7 +358,7 @@ stat -c '%u:%g %a %n' /vol1/1000/Docker/media-ingest/data /vol1/1000/Library
 
 **【解决步骤】**
 
-1. **数据卷必须可写**（最常见的坑）：**【NAS 宿主】**（`1000:1000` 换成你自己的 `<PUID>:<PGID>`，即容器内 `id` 看到的那个）
+1. **数据卷必须可写**（最常见的坑）：**【宿主机】**（`1000:1000` 换成你自己的 `<PUID>:<PGID>`，即容器内 `id` 看到的那个）
    ```bash
    mkdir -p /vol1/1000/Docker/media-ingest/data/logs
    chown -R 1000:1000 /vol1/1000/Docker/media-ingest/data
@@ -377,7 +377,7 @@ stat -c '%u:%g %a %n' /vol1/1000/Docker/media-ingest/data /vol1/1000/Library
 
 **【诊断命令】**
 
-**【NAS 宿主】** 手工打一次回调（`<TOKEN>` 换成设置页复制的那个）。**两个回调路由都只接受 `POST`**，忘了 `-X POST` 会拿到 `405`：
+**【宿主机】** 手工打一次回调（`<TOKEN>` 换成设置页复制的那个）。**两个回调路由都只接受 `POST`**，忘了 `-X POST` 会拿到 `405`：
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST \
@@ -389,11 +389,11 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
 **【解决步骤】**
 
 1. **参数放查询串或 `application/x-www-form-urlencoded` 表单体都行，JSON body 一律被静默忽略**（于是 `matched` 恒为 0、还不报错）。业务参数 7 个：`name`/`hash`/`category`/`tags`/`content_path`/`save_path`/`root_path`（qB 占位符 `%N`/`%I`/`%L`/`%G`/`%F`/`%D`/`%R`），`token` 一般放查询串。`kind=` 是**可选的显式覆盖**（`hardlink`/`rename`/`rename_hardlink` 等，见 `app/routers/hooks.py` 的 `EXPLICIT_KINDS`），不传就按库的处理器推断。
-2. 命令形如 `/usr/bin/curl -s -X POST "http://<NAS_IP>:18081/api/hooks/qbittorrent?token=<TOKEN>&name=%N&hash=%I&category=%L&tags=%G&content_path=%F&save_path=%D&root_path=%R"`；或者把 `%N` 那些用 `--data-urlencode "name=%N"` 逐个放进表单体。Windows 客户端用 `curl.exe` 并给整串加引号。填法见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §5.2。
+2. 命令形如 `/usr/bin/curl -s -X POST "http://<HOST_IP>:18081/api/hooks/qbittorrent?token=<TOKEN>&name=%N&hash=%I&category=%L&tags=%G&content_path=%F&save_path=%D&root_path=%R"`；或者把 `%N` 那些用 `--data-urlencode "name=%N"` 逐个放进表单体。Windows 客户端用 `curl.exe` 并给整串加引号。填法见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §5.2。
 3. **给库配至少一个匹配条件**，否则永远命中不了；响应 `ignored_details` 里有中文原因。
 4. `matched: 0` 且 `warnings` 说「当前没有任何**已启用**的媒体库」⇒ 去媒体库页启用。
 5. 想「什么都收」用 `POST /api/hooks/scan?token=…`：它**不看匹配条件**，按已启用库逐个建任务（源目录不存在也会建，任务会以失败告终并给出原因）。
-6. 网络：从 qBittorrent 所在容器/主机 `curl` 一下健康检查；跨容器时用 NAS 真实 IP 而不是 `127.0.0.1`。
+6. 网络：从 qBittorrent 所在容器/主机 `curl` 一下健康检查；跨容器时用宿主真实 IP 而不是 `127.0.0.1`。
 
 ---
 
@@ -407,7 +407,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
 
 **【原因】** token 缺失、拼错、带了空格/引号；或你在设置页**重新生成**过 token（旧值随即失效）。
 
-**【诊断命令】** **【浏览器】** 设置页复制当前 `hook_token`（明文显示）。**【NAS 宿主】** 两种传法都应 200（记得 `-X POST`）：
+**【诊断命令】** **【浏览器】** 设置页复制当前 `hook_token`（明文显示）。**【宿主机】** 两种传法都应 200（记得 `-X POST`）：
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST 'http://127.0.0.1:18081/api/hooks/qbittorrent?token=<TOKEN>&name=T&hash=h&content_path=/x&save_path=/y'
@@ -472,7 +472,7 @@ docker exec -it media-ingest python -c "import sqlite3;print(sqlite3.connect('/d
 
 ---
 
-## 12. ARM64（aarch64）NAS 上的构建与运行
+## 12. ARM64（aarch64）主机上的构建与运行
 
 **【现象】** 构建报 `no matching manifest`、运行报 `exec format error`，或跑起来极慢。
 
@@ -553,7 +553,7 @@ docker compose exec media-ingest python -c "import sqlite3;c=sqlite3.connect('/d
 
 **【诊断命令】** **【浏览器】** 任务详情 → `result.renamed` / `rename_failed` / `kept_unresolved_episode` / `samples.*`；任务日志里搜 `Renamed:`、`Kept (no episode):`、`Error renaming`。
 
-**【NAS 宿主】** 每个库的重命名日志是 JSON（`<作品名> -> {size, timestamp, works_dir}`），位置与格式见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §2.6：
+**【宿主机】** 每个库的重命名日志是 JSON（`<作品名> -> {size, timestamp, works_dir}`），位置与格式见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §2.6：
 
 ```bash
 docker compose exec media-ingest head -c 400 /data/logs/bangumicache.log
@@ -575,7 +575,7 @@ docker compose exec media-ingest head -c 400 /data/logs/bangumicache.log
 
 **【原因】** 幂等标记是**一级文件夹的总体积**（L9）：体积一样就跳过（日志 `文件夹已记录且体积一致，跳过: <folder>`）。而且体积核对是**事后**的：链接完成后源被同尺寸改写不会被发现（L8）。**这是冻结的既有规则，不是本应用的取舍。**
 
-**【诊断命令】** **【浏览器】** 任务日志搜 `文件夹已记录且体积一致，跳过:`。**【NAS 宿主】** 对比账本体积与实际体积：
+**【诊断命令】** **【浏览器】** 任务日志搜 `文件夹已记录且体积一致，跳过:`。**【宿主机】** 对比账本体积与实际体积：
 
 ```bash
 docker compose exec media-ingest python -c "import sqlite3;c=sqlite3.connect('/data/mlm.db');[print(r) for r in c.execute('SELECT folder,size FROM link_records ORDER BY id DESC LIMIT 20')]"
@@ -598,7 +598,7 @@ du -sb /vol1/1000/Download/qbittorrent/Bangumi/*/
 
 **【诊断命令】**
 
-**【浏览器】** 系统信息页 / `GET /api/config` 看 `errors[]`（会指出哪个文件、哪个字段或行）。**【NAS 宿主】**
+**【浏览器】** 系统信息页 / `GET /api/config` 看 `errors[]`（会指出哪个文件、哪个字段或行）。**【宿主机】**
 
 ```bash
 ls -l /data/config/ /data/config/processors/
@@ -622,7 +622,7 @@ docker compose exec media-ingest head -n 30 /data/config/processors/bangumi.yaml
 
 **【原因】** `libraries.processor_id` 指向的处理器已经不在 `processors` 表里（被手工删、被导入的配置覆盖、或 `processors/*.yaml` 被删掉后同步删除）。
 
-**【诊断命令】** **【浏览器】** 「处理器」页看现有列表；`GET /api/libraries` 里该库的 `processor_id` 与 `processor` 字段。**【NAS 宿主】** `ls -l /data/config/processors/`。
+**【诊断命令】** **【浏览器】** 「处理器」页看现有列表；`GET /api/libraries` 里该库的 `processor_id` 与 `processor` 字段。**【宿主机】** `ls -l /data/config/processors/`。
 
 **【解决步骤】**
 

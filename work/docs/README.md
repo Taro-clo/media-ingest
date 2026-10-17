@@ -13,7 +13,7 @@
 | 我想… | 先读 |
 |---|---|
 | 知道这是什么、值不值得装 | [`../../README.md`](../../README.md)（根 README：30 秒定位 + 快速开始） |
-| 把它装到 NAS 上 | [`../examples/nas-deploy.md`](../examples/nas-deploy.md)（完整演练）→ [`guides/DEPLOYMENT.md`](guides/DEPLOYMENT.md)（每个选项、升级、备份） |
+| 把它部署到宿主机上 | [部署演练](../examples/nas-deploy.md)（完整演练）→ [`guides/DEPLOYMENT.md`](guides/DEPLOYMENT.md)（每个选项、升级、备份） |
 | 学会用 WebUI 建库、跑任务、看日志 | [`guides/USER_GUIDE.md`](guides/USER_GUIDE.md) |
 | 接 qBittorrent，下载完成自动入库 | [`../examples/qbittorrent-autorun.md`](../examples/qbittorrent-autorun.md)（回调命令的唯一权威副本） |
 | 改命名规则 / 处理器 / 特典判据 | [`contracts/PROCESSORS.md`](contracts/PROCESSORS.md) |
@@ -26,7 +26,7 @@
 ## 建议阅读路径
 
 - **10 分钟（决定装不装）**：根 [`README.md`](../../README.md) → [`guides/DEPLOYMENT.md`](guides/DEPLOYMENT.md) §1 前置检查。
-- **30 分钟（装好并建第一个库）**：[`../examples/nas-deploy.md`](../examples/nas-deploy.md) → [`guides/USER_GUIDE.md`](guides/USER_GUIDE.md) §3–§4。
+- **30 分钟（装好并建第一个库）**：[部署演练](../examples/nas-deploy.md) → [`guides/USER_GUIDE.md`](guides/USER_GUIDE.md) §3–§4。
 - **半天（接手维护）**：[`contracts/ARCHITECTURE.md`](contracts/ARCHITECTURE.md) → [`meta/STRUCTURE.md`](meta/STRUCTURE.md) → [`contracts/BASELINE.md`](contracts/BASELINE.md) → [`meta/TEST-MAP.md`](meta/TEST-MAP.md)。
 
 ## 约定

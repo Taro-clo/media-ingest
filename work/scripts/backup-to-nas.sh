@@ -1,7 +1,7 @@
 #!/bin/sh
 # 归档交付物：bundle + 源码 tar + sha256，并用 bundle 克隆自检完整性。
 #
-# 前置：先在本地生成 bundle 并推到 NAS，例如
+# 前置：先在本地生成 bundle 并推到宿主机，例如
 #   git -C media-ingest bundle create /tmp/media-ingest-v1.0.0.bundle --all
 #   (或 scp 推到 /tmp/)
 #

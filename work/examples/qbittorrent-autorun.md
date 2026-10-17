@@ -5,7 +5,7 @@
 
 | 占位 | 示例值 | 说明 |
 |---|---|---|
-| `<NAS_IP>` | `192.168.1.100` | NAS 的局域网 IP。qBittorrent 在自己的容器里执行命令，**不能用 `127.0.0.1`**（那指向 qB 自己） |
+| `<HOST_IP>` | `192.168.1.100` | 宿主机的局域网 IP。qBittorrent 在自己的容器里执行命令，**不能用 `127.0.0.1`**（那指向 qB 自己） |
 | `<应用端口>` | `18081` | 本应用端口。端口是**发布到宿主**的（compose 的 `ports`），不是 host 网络，所以走宿主 IP + 端口 |
 | `<媒体父目录>` | `/vol1/1000` | 下载目录与媒体库的共同父目录 |
 | `<下载目录>` | `/vol1/1000/Download/qbittorrent` | qB 的下载目录（回调传进来的路径都以它开头） |
@@ -20,7 +20,7 @@
 
 ## 1. 先拿到回调命令（不要手抄）
 
-1. 浏览器打开 `http://<NAS_IP>:18081`，用管理员登录；
+1. 浏览器打开 `http://<HOST_IP>:18081`，用管理员登录；
 2. 进 **设置**页，找 **回调 / Hook** 一张卡；
 3. 卡上有 **hook token** 和一条**完整可复制的回调命令**，点「复制」；
 4. 这条命令就是 §2 要粘进 qBittorrent 的东西。
@@ -28,7 +28,7 @@
 命令长这样（`<HOOK_TOKEN>` 是设置页给你的真 token，**必须是一行、不换行、不加多余空格**）：
 
 ```sh
-curl -s -X POST "http://<NAS_IP>:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>" --data-urlencode "name=%N" --data-urlencode "hash=%I" --data-urlencode "category=%L" --data-urlencode "tags=%G" --data-urlencode "content_path=%F" --data-urlencode "save_path=%D" --data-urlencode "root_path=%R"
+curl -s -X POST "http://<HOST_IP>:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>" --data-urlencode "name=%N" --data-urlencode "hash=%I" --data-urlencode "category=%L" --data-urlencode "tags=%G" --data-urlencode "content_path=%F" --data-urlencode "save_path=%D" --data-urlencode "root_path=%R"
 ```
 
 - **7 个 `--data-urlencode` 一个都不能少、顺序照抄**。多传别的占位符会被静默忽略（服务端只取白名单里的 8 个键）。
@@ -41,7 +41,7 @@ curl -s -X POST "http://<NAS_IP>:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>"
 
 ## 2. 粘进 qBittorrent（七步）
 
-1. 打开 qBittorrent WebUI（`http://<NAS_IP>:18080`），登录；
+1. 打开 qBittorrent WebUI（`http://<HOST_IP>:18080`），登录；
 2. 齿轮图标 → **设置**；
 3. 左侧选 **下载**；
 4. 找到 **运行外部程序** 输入框；
@@ -88,7 +88,7 @@ curl -s -X POST "http://<NAS_IP>:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>"
 # 存成 /vol1/1000/scripts/hook.sh 并 chmod +x。
 # qB「运行外部程序」里写：/vol1/1000/scripts/hook.sh "%F" "%N" "%I" "%L" "%G" "%D" "%R"
 P="/vol1/1000/Download/qbittorrent${1#/downloads}"
-curl -s -X POST "http://<NAS_IP>:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>" \
+curl -s -X POST "http://<HOST_IP>:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>" \
   --data-urlencode "name=$2" --data-urlencode "hash=$3" --data-urlencode "category=$4" \
   --data-urlencode "tags=$5" --data-urlencode "content_path=$P" \
   --data-urlencode "save_path=$6" --data-urlencode "root_path=$7"
@@ -99,7 +99,7 @@ curl -s -X POST "http://<NAS_IP>:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>"
 **（1）手动模拟一次回调**（最可靠，能立刻区分「链路问题」和「配置问题」）
 
 ```sh
-# 在 NAS 宿主上执行；token 换成你的，category / content_path 换成你库里能匹配上的值
+# 在宿主机上执行；token 换成你的，category / content_path 换成你库里能匹配上的值
 curl -s -X POST "http://127.0.0.1:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>" \
   --data-urlencode "name=测试种子" \
   --data-urlencode "hash=0000000000000000000000000000000000000000" \
@@ -120,8 +120,8 @@ curl -s -X POST "http://127.0.0.1:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>
 **（2）从 qB 容器内部测可达性**（等价于 qB 自己发起的调用）
 
 ```sh
-docker exec qbittorrent curl -s -X POST "http://<NAS_IP>:18081/api/system/health"
-# 有 JSON 输出 = qB 容器到应用网络是通的。连不上先确认 <NAS_IP> 是宿主真实局域网 IP（不是 127.0.0.1）
+docker exec qbittorrent curl -s -X POST "http://<HOST_IP>:18081/api/system/health"
+# 有 JSON 输出 = qB 容器到应用网络是通的。连不上先确认 <HOST_IP> 是宿主真实局域网 IP（不是 127.0.0.1）
 ```
 
 **（3）真下一个种子**：完成后 `docker compose logs --tail=100 media-ingest` 应出现
@@ -133,7 +133,7 @@ docker exec qbittorrent curl -s -X POST "http://<NAS_IP>:18081/api/system/health
 ## 6. 回调漏了怎么办
 
 - **扫描补偿（推荐）**：设置页打开 `scan_enabled`，`scan_interval_seconds` 默认 900 秒；它会扫所有启用库的源目录，把「没记录过或体积变了」的一级文件夹补成任务。说明见 [`USER_GUIDE.md`](../docs/guides/USER_GUIDE.md) §8.4。
-- **手动触发一次扫描**（不看开关，总是执行）：`curl -s -X POST "http://<NAS_IP>:18081/api/hooks/scan?token=<HOOK_TOKEN>"`。
+- **手动触发一次扫描**（不看开关，总是执行）：`curl -s -X POST "http://<HOST_IP>:18081/api/hooks/scan?token=<HOOK_TOKEN>"`。
 - **手动跑某个文件夹**：库详情页的「运行」，等价于 `POST /api/libraries/<id>/run`（`folder` 必须是一级文件夹名）。
 - **为什么回调只是入队**：全局单工作线程串行执行，避免两个任务同时改同一目录；突发几十个种子会排队，不是卡死。
 

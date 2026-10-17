@@ -1,7 +1,7 @@
-# 部署手册（Docker / NAS）
+# 部署手册（Docker）
 
 > **本文解决什么**：把本应用从零装到「浏览器能打开、qBittorrent 能触发」—— 装前确认、共同父挂载、硬链接为什么只能在同一个挂载里建、源目录靠什么保护、升级、备份恢复、ARM64、非 root 运行。
-> 面向**不懂代码的 NAS 用户**：命令可直接复制，每条前面标了**在哪执行**；前提是 NAS 已装好 Docker（含 `docker compose`）。
+> 面向**不懂代码的用户**：命令可直接复制，每条前面标了**在哪执行**；前提是宿主机已装好 Docker（含 `docker compose`）。
 > **本文不负责**：网页每个按钮怎么点 → [`USER_GUIDE.md`](USER_GUIDE.md)；接口 → [`../contracts/API.md`](../contracts/API.md)；报错排查 → [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) / [`FAQ.md`](FAQ.md)。
 
 ---
@@ -10,7 +10,7 @@
 
 | 占位符 | 文中示例值 | 换成什么 / 在哪改 |
 |---|---|---|
-| `<NAS_IP>` | `192.168.1.100` | 你 NAS 的局域网地址 |
+| `<HOST_IP>` | `192.168.1.100` | 你宿主机的局域网地址 |
 | `<MEDIA_ROOT>` | `/vol1/1000` | 下载源与媒体库的**共同父目录**（宿主路径）；compose 的 `x-media-root` 锚点（或环境变量 `MEDIA_ROOT`） |
 | `<下载根>` | `<MEDIA_ROOT>/Download/qbittorrent` | qBittorrent 下载根（源） |
 | `<媒体库根>` | `<MEDIA_ROOT>/Library` | 媒体库根（目标） |
@@ -22,7 +22,7 @@
 
 > 下文出现的 `/vol1/1000/...` 一律读作「你的 `<MEDIA_ROOT>` 下的同名子目录」。它同时是 `docker-compose.yml` 与 `app/config.py` 里**出厂默认值**的形态，按默认路径部署时不用改。
 
-**命令执行位置**：`【NAS 宿主】` = SSH 登录 NAS 或 NAS 的终端（不是容器里）；`【容器内】` = `docker exec -it media-ingest <命令>`；`【任意电脑】` = 你自己电脑。开 SSH 在 NAS 的「控制面板 → 终端机」。
+**命令执行位置**：`【宿主机】` = SSH 登录宿主机或宿主机终端（不是容器里）；`【容器内】` = `docker exec -it media-ingest <命令>`；`【任意电脑】` = 你自己电脑。开 SSH 的方式取决于你的系统（管理面板里的「终端机」选项，或直接 `ssh` 登录）。
 
 ---
 
@@ -32,7 +32,7 @@
 
 ### 1.1 Docker、compose、目录
 
-**【NAS 宿主】**
+**【宿主机】**
 
 ```bash
 docker --version && docker compose version
@@ -166,7 +166,7 @@ x-data-dir: &data-dir "${MLM_DATA_DIR:-./data}"
 
 首次启动自动完成（无需人工）：`processors` 表为空 ⇒ 写入上表三个处理器的 `default` 预设 ⇒ 把 `libraries.processor` 映射为 `processor_id` ⇒ 立刻写出 `libraries.yaml` 与 `processors/*.yaml`。
 
-**核对【NAS 宿主】**：`curl -s http://127.0.0.1:18081/api/processors`、`curl -s http://127.0.0.1:18081/api/config`（看每个文件的 sha256 / `in_sync` / `errors`）、`cat <数据卷>/config/processors/bangumi.yaml`。
+**核对【宿主机】**：`curl -s http://127.0.0.1:18081/api/processors`、`curl -s http://127.0.0.1:18081/api/config`（看每个文件的 sha256 / `in_sync` / `errors`）、`cat <数据卷>/config/processors/bangumi.yaml`。
 
 ### 2.5 配置目录（`/data/config`）：布局、双向同步、冲突处理
 
@@ -206,7 +206,7 @@ x-data-dir: &data-dir "${MLM_DATA_DIR:-./data}"
 
 **硬规则**：`log_file` **只能是文件名**（含 `/` 或 `..` 直接 422）；新建库时不存在会创建空 `{}`；磁盘上已存在的同名日志原样保留、继续追加。
 
-**自查【NAS 宿主】**：`ls -l <数据卷>/logs/`；`python3 -m json.tool bangumicache.log | head -20`。
+**自查【宿主机】**：`ls -l <数据卷>/logs/`；`python3 -m json.tool bangumicache.log | head -20`。
 
 > ⚠️ **"已处理"的判据是每库账本 `link_records`**，不是日志文件：作品记录还在就不会重做。要重做某作品，删掉作品记录或对应账本记录（[`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 场景 16、场景 28）。
 
@@ -228,7 +228,7 @@ OSError: [Errno 18] Invalid cross-device link: '<下载根>/Bangumi/x.mkv' -> '<
 
 > 🚫 **绝不回退为复制文件。** 判定跨挂载时运行前**只警告、不硬拦**（进 `Task.result.warnings[]`）；真跑起来由执行前后的逐文件核对给结论（失败就是 `link_failed`，不会悄悄复制一份冒充硬链接）。
 
-**自查命令【NAS 宿主】**
+**自查命令【宿主机】**
 
 ```bash
 findmnt -T <下载根> -o TARGET; findmnt -T <媒体库根> -o TARGET   # ① 主判据：TARGET 相同
@@ -267,16 +267,16 @@ du -sh <下载根>/<作品> <媒体库根>/<作品>                          # �
 | Compose 项目目录 | `<项目目录>`（示例 `/vol1/1000/Docker/media-ingest`） |
 | 镜像 / 容器名 | 源码构建 `media-ingest:latest`；镜像部署 `ghcr.io/taro-clo/media-ingest:<tag>`（默认 `latest`，跟随最新发布）；容器名都是 `media-ingest` |
 | 数据卷宿主目录 | `<数据卷>`（默认 `<项目目录>/data`，§2.3） |
-| 端口 / 访问地址 | `18081` / `http://<NAS_IP>:18081` |
+| 端口 / 访问地址 | `18081` / `http://<HOST_IP>:18081` |
 | 容器内运行用户 | `app`（`<PUID>:<PGID>`，出厂示例 `1000:1001`） |
 
-### 4.1 把项目文件放到 NAS 上
+### 4.1 把项目文件放到宿主机上
 
-【任意电脑】`scp -r <项目目录> youruser@<NAS_IP>:<项目目录>`；或【NAS 宿主】先 `mkdir -p <项目目录>`，再用 File Station / SMB 把**全部文件**拖进去。目录里至少要看到 `docker-compose.yml`、`.env.example`、`docker/`、`app/`、`web/`、`docs/`。
+【任意电脑】`scp -r <项目目录> youruser@<HOST_IP>:<项目目录>`；或【宿主机】先 `mkdir -p <项目目录>`，再用文件管理器 / SMB 把**全部文件**拖进去。目录里至少要看到 `docker-compose.yml`、`.env.example`、`docker/`、`app/`、`web/`、`docs/`。
 
 ### 4.2 建数据目录、写 `.env`
 
-**【NAS 宿主】**
+**【宿主机】**
 
 ```bash
 mkdir -p <数据卷>
@@ -328,7 +328,7 @@ docker inspect media-ingest --format '{{.State.Status}} health={{if .State.Healt
 
 ### 4.4 验证服务可访问（不用登录）
 
-**【NAS 宿主】** `curl -s http://127.0.0.1:18081/api/system/health` —— 期望 `"status":"ok"`，哪项 `false` 就查 §4.4.1。
+**【宿主机】** `curl -s http://127.0.0.1:18081/api/system/health` —— 期望 `"status":"ok"`，哪项 `false` 就查 §4.4.1。
 
 **【容器内】** 直接跑健康检查脚本（`status=="ok"` 且四项全 `true` 才退出 0；退出码 `0`/`1`/`2` 分别 = 健康 / `degraded` 或响应非法 / 连不上或 HTTP 非 200）：
 
@@ -372,7 +372,7 @@ media-ingest  media-ingest:latest  "/usr/local/bin/…"  Up 45 seconds (healthy)
 
 ### 4.5 浏览器打开并创建管理员
 
-打开 `http://<NAS_IP>:18081`：`.env` 填了 `ADMIN_USERNAME` / `ADMIN_PASSWORD` → 直接用该账号登录；没填 → 页面引导你**创建管理员**（用户名 + 密码，**至少 8 位**）。登录后立刻：① 设置页改密码（若用 `.env` 初始化），并把 `.env` 里的 `ADMIN_PASSWORD` 删掉；② 设置页「回调 / Hook」复制 `hook_token` 与完整回调命令（§5 要用）；③ 新建媒体库前先看 [`USER_GUIDE.md`](USER_GUIDE.md)。
+打开 `http://<HOST_IP>:18081`：`.env` 填了 `ADMIN_USERNAME` / `ADMIN_PASSWORD` → 直接用该账号登录；没填 → 页面引导你**创建管理员**（用户名 + 密码，**至少 8 位**）。登录后立刻：① 设置页改密码（若用 `.env` 初始化），并把 `.env` 里的 `ADMIN_PASSWORD` 删掉；② 设置页「回调 / Hook」复制 `hook_token` 与完整回调命令（§5 要用）；③ 新建媒体库前先看 [`USER_GUIDE.md`](USER_GUIDE.md)。
 
 ### 4.6 用预构建镜像安装（不构建，推荐）
 
@@ -458,9 +458,9 @@ docker compose -f docker-compose.release.yml ps        # STATUS 出现 (healthy)
 - 后续验证、创建管理员、接 qBittorrent 与源码构建完全相同：§4.4 → §4.5 → §5。
 
 > GHCR 在国内部分网络下可能较慢或不可达；这种情况用源码构建（§4.3），或先在有网络的地方
-> `docker pull` 后 `docker save -o media-ingest.tar ghcr.io/taro-clo/media-ingest:latest`，拷到 NAS 再
+> `docker pull` 后 `docker save -o media-ingest.tar ghcr.io/taro-clo/media-ingest:latest`，拷到宿主机再
 > `docker load -i media-ingest.tar` —— 加载后的镜像名就是 compose 默认的 `latest`，通常不用改 `image:`。
-> 非 x86_64 的 NAS（arm64）不用改任何东西：镜像里有 arm64 版，`docker pull` 会按架构自动挑选。
+> 非 x86_64 的宿主机（arm64）不用改任何东西：镜像里有 arm64 版，`docker pull` 会按架构自动挑选。
 
 ---
 
@@ -475,7 +475,7 @@ docker compose -f docker-compose.release.yml ps        # STATUS 出现 (healthy)
 
 ### 5.2 在 qBittorrent 里填写
 
-qBittorrent WebUI（`http://<NAS_IP>:18080`）→ **设置 → 下载 → 运行外部程序（Run external program）**，把设置页拿到的那**一整行**粘进去，确认**已启用**，保存。
+qBittorrent WebUI（`http://<HOST_IP>:18080`）→ **设置 → 下载 → 运行外部程序（Run external program）**，把设置页拿到的那**一整行**粘进去，确认**已启用**，保存。
 
 **完整命令的唯一权威副本在 [`examples/qbittorrent-autorun.md`](../../examples/qbittorrent-autorun.md)**（含全部 7 个占位符与逐项解释）—— 本文只留必须知道的四条：
 
@@ -490,7 +490,7 @@ qBittorrent WebUI（`http://<NAS_IP>:18080`）→ **设置 → 下载 → 运行
 
 ### 5.3 验证回调真的生效
 
-**① 手动模拟一次回调（最可靠）【NAS 宿主】**
+**① 手动模拟一次回调（最可靠）【宿主机】**
 
 ```bash
 curl -s -X POST "http://127.0.0.1:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>" \
@@ -508,7 +508,7 @@ curl -s -X POST "http://127.0.0.1:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>
 
 > ⚠️ 手动模拟只验证"**回调链路**通不通"，不代表下载完成时 qBittorrent 真会调用（取决于 §5.2 的配置与开关）。
 
-**② 从 qBittorrent 容器内部测（验证网络可达）**：`docker exec qbittorrent curl -s -X POST "http://<NAS_IP>:18081/api/system/health"` —— 有 JSON 输出 = 网络通。
+**② 从 qBittorrent 容器内部测（验证网络可达）**：`docker exec qbittorrent curl -s -X POST "http://<HOST_IP>:18081/api/system/health"` —— 有 JSON 输出 = 网络通。
 
 **③ 真跑一个种子**：完成后 `docker compose logs --tail=100` 应看到 `INFO qbittorrent 回调：…` 与 `INFO 命中媒体库「番剧」，任务 #43 已入队`，任务页出现新任务。
 
@@ -542,7 +542,7 @@ curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
 
 **① 先备份**（永远先备份）：见 §7。
 
-**② 替换代码并重建【NAS 宿主】**
+**② 替换代码并重建【宿主机】**
 
 ```bash
 cd <项目目录>
@@ -600,7 +600,7 @@ MLM_VERSION=1.0.1 docker compose -f docker-compose.release.yml up -d
   编辑该库改成宿主真实路径（容器路径 = 宿主路径），保存时会自动校验「同一挂载」；
 - 跨挂载的库在**保存时**就会被拒绝（`400`，文案以「跨挂载错误」开头），不会再静默失败。
 
-**30 秒确认【NAS 宿主】**
+**30 秒确认【宿主机】**
 
 `curl -s http://127.0.0.1:18081/api/system/health`（四项应全 `true`）+ `curl -s http://127.0.0.1:18081/api/system/info`
 （看 `mounts[]` 里是否出现每个库的源/目标目录，以及 `same_filesystem` 的概览结论）。
@@ -638,7 +638,7 @@ tar -czf <备份目录>/mlm-data-$(date +%Y%m%d-%H%M%S).tar.gz -C <数据卷的�
 docker compose start
 ```
 
-不停容器也能备份（**要带上 WAL**）：`docker exec media-ingest sh -c 'cd /data && tar -czf - mlm.db mlm.db-wal mlm.db-shm secret.key config logs' > <备份目录>/mlm-data-live-$(date +%Y%m%d-%H%M%S).tar.gz` —— 通过容器内 tar 打包可避开宿主权限不足，但打包瞬间数据库可能正在被写。**建议**加进 NAS 定时任务，每天一次，留最近 7~14 份。
+不停容器也能备份（**要带上 WAL**）：`docker exec media-ingest sh -c 'cd /data && tar -czf - mlm.db mlm.db-wal mlm.db-shm secret.key config logs' > <备份目录>/mlm-data-live-$(date +%Y%m%d-%H%M%S).tar.gz` —— 通过容器内 tar 打包可避开宿主权限不足，但打包瞬间数据库可能正在被写。**建议**加进宿主机定时任务，每天一次，留最近 7~14 份。
 
 ### 7.3 恢复命令
 
@@ -690,7 +690,7 @@ compose 的宿主侧与容器侧共用 `${PORT}`，所以**只改 `.env` 一处*
 
 ```nginx
 location / {
-    proxy_pass http://<NAS_IP>:18081;
+    proxy_pass http://<HOST_IP>:18081;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -719,7 +719,7 @@ location / {
 
 > 📌 本文示例与验收针对 **x86_64**（`arch=amd64`）。单平台构建出的镜像只能在那个架构上跑。
 
-### 9.2 方式 A：在 ARM NAS 上本机构建（最简单）
+### 9.2 方式 A：在 ARM 主机上本机构建（最简单）
 
 `cd <项目目录> && docker compose up -d --build` —— 官方基础镜像会自动拉 arm64 版本，`pip` 会自动装 arm64 wheel。
 
@@ -732,7 +732,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -f docker/Dockerfile -t <
 docker buildx build --platform linux/arm64 -f docker/Dockerfile -t media-ingest:latest --load .
 ```
 
-在 NAS 上改用镜像：把 `docker-compose.yml` 的 `build:` 段注释掉、只留 `image:`，然后 `docker compose pull && docker compose up -d`。别把私有仓库的账号密码写进 `docker-compose.yml`，用 `docker login`。
+在宿主机上改用镜像：把 `docker-compose.yml` 的 `build:` 段注释掉、只留 `image:`，然后 `docker compose pull && docker compose up -d`。别把私有仓库的账号密码写进 `docker-compose.yml`，用 `docker login`。
 
 ---
 
@@ -740,7 +740,7 @@ docker buildx build --platform linux/arm64 -f docker/Dockerfile -t media-ingest:
 
 ### 10.1 为什么要关心 / 是什么
 
-容器以 root 运行，建出来的文件和目录就是 root 属主：你的 NAS 账号可能删不掉/改不了，Emby 可能读不了；反过来 uid 不对时**它自己**也会 `Permission denied`。所以本项目**刻意不以 root 执行业务逻辑**：entrypoint 以 root 启动只为**修权限**，修完立刻降权到 `app` 用户。
+容器以 root 运行，建出来的文件和目录就是 root 属主：你的系统账号可能删不掉/改不了，Emby 可能读不了；反过来 uid 不对时**它自己**也会 `Permission denied`。所以本项目**刻意不以 root 执行业务逻辑**：entrypoint 以 root 启动只为**修权限**，修完立刻降权到 `app` 用户。
 
 | 变量 | 含义 | 默认 / 参考值 |
 |---|---|---|
@@ -768,7 +768,7 @@ docker buildx build --platform linux/arm64 -f docker/Dockerfile -t media-ingest:
 - `<媒体库根>`：**你自己**。要让新 `PUID` 可写就 `chown <PUID>:<PGID> <媒体库根>` 或放宽目录权限（§10.3）—— entrypoint 不会也不该 `chown` 整棵树；
 - `<下载根>`：只需**可读**（代码层从不写这里、也不做 `:ro`，保护靠代码层 + 逐文件核对，§3.1）。
 
-**验证【NAS 宿主】**：`docker exec media-ingest id`；`ls -ld <数据卷>`；`sudo -u '#<PUID>' test -w <媒体库根> && echo OK || echo '不可写，需要 chown/chmod'`。
+**验证【宿主机】**：`docker exec media-ingest id`；`ls -ld <数据卷>`；`sudo -u '#<PUID>' test -w <媒体库根> && echo OK || echo '不可写，需要 chown/chmod'`。
 
 ### 10.3 权限调不过去怎么办
 
@@ -791,7 +791,7 @@ docker buildx build --platform linux/arm64 -f docker/Dockerfile -t media-ingest:
 
 ## 11. 常用运维命令速查
 
-全部在**【NAS 宿主】**执行（`cd <项目目录>` 之后）：
+全部在**【宿主机】**执行（`cd <项目目录>` 之后）：
 
 ```bash
 docker compose up -d / stop / start / restart      # 启停

@@ -14,7 +14,7 @@
 > （`app/config.py` 的 `Settings` docstring 直接写"属性即 ARCHITECTURE §6.1 列出的那批"）。
 >
 > **路径写法**：`<MEDIA_ROOT>` = compose 的 `${MEDIA_ROOT:-/vol1/1000}`（容器路径 = 宿主路径）；
-> `<LIBRARY_ROOT>` = 媒体库 `target_dir`；`<NAS_IP>` = 部署机地址。均为可替换占位。
+> `<LIBRARY_ROOT>` = 媒体库 `target_dir`；`<HOST_IP>` = 部署机地址。均为可替换占位。
 
 ---
 
@@ -372,7 +372,7 @@ def remove_log_entries(log_file, source_dir, folder) -> int
 qBittorrent → 设置 → 下载 → **运行外部程序**：
 
 ```
-curl -s -X POST "http://<NAS_IP>:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>" --data-urlencode "name=%N" --data-urlencode "hash=%I" --data-urlencode "category=%L" --data-urlencode "tags=%G" --data-urlencode "content_path=%F" --data-urlencode "save_path=%D" --data-urlencode "root_path=%R"
+curl -s -X POST "http://<HOST_IP>:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>" --data-urlencode "name=%N" --data-urlencode "hash=%I" --data-urlencode "category=%L" --data-urlencode "tags=%G" --data-urlencode "content_path=%F" --data-urlencode "save_path=%D" --data-urlencode "root_path=%R"
 ```
 
 - **刻意不传 `kind`**：qBittorrent 的 `%K` 语义是 **Torrent ID**（内部数字），不是"文件类型"；当 `kind`

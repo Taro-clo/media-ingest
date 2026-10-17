@@ -27,11 +27,11 @@
 | 项目 | 值 |
 |---|---|
 | 默认端口 | `18081`（容器内 `PORT` 环境变量可改，见 `app/config.py`） |
-| 基础地址 | `http://$NAS_IP:18081` |
+| 基础地址 | `http://$HOST_IP:18081` |
 | 全部接口前缀 | `/api` |
 | 数据格式 | 请求与响应均为 `application/json`（`/api/hooks/*` 例外，见 §6） |
 
-下文示例把 `$NAS_IP` 当作你自己 NAS 的地址（例如 `http://$NAS_IP:18081`），复制命令时请先替换。
+下文示例把 `$HOST_IP` 当作你自己宿主机的地址（例如 `http://$HOST_IP:18081`），复制命令时请先替换。
 
 ### 1.2 认证方式
 
@@ -1159,7 +1159,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `hook_token` | 随机生成 | `/api/hooks/*` 的 token（三种传法见 §6） |
 | `scan_enabled` | `false` | 目录扫描补偿开关（回调漏了也能补上） |
 | `scan_interval_seconds` | `900` | 扫描周期（秒），区间 30–86400 |
-| `qbittorrent_url` | `""` | 例如 `http://$NAS_IP:18080` |
+| `qbittorrent_url` | `""` | 例如 `http://$HOST_IP:18080` |
 | `qbittorrent_username` / `qbittorrent_password` | `""` | 可选，用于 API 补偿与「测试连接」 |
 | `log_level` | `INFO` | 应用日志等级 |
 | `orphan_cleanup_enabled` | `true` | 全局孤儿清理总开关（**全局为 false 时，所有库都不会清理孤儿**） |
@@ -1264,7 +1264,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 docker inspect --format '{{.State.Health.Status}}' media-ingest
 
 # 2) 看接口原始返回
-curl -s http://$NAS_IP:18081/api/system/health | python3 -m json.tool
+curl -s http://$HOST_IP:18081/api/system/health | python3 -m json.tool
 
 # 3) 在容器内查（用镜像自带的 python）
 docker exec media-ingest python3 -c "import json,urllib.request;print(json.dumps(json.load(urllib.request.urlopen('http://127.0.0.1:18081/api/system/health')),ensure_ascii=False,indent=2))"
@@ -1986,7 +1986,7 @@ data: {"task_id":42,"status":"success"}
 - 观察用（注意 URL 里的任务 id，`-N` 关闭 curl 的输出缓冲）：
 
 ```bash
-curl -N -b cookies.txt http://$NAS_IP:18081/api/tasks/42/stream
+curl -N -b cookies.txt http://$HOST_IP:18081/api/tasks/42/stream
 ```
 
 ---
@@ -1995,7 +1995,7 @@ curl -N -b cookies.txt http://$NAS_IP:18081/api/tasks/42/stream
 
 完整可跑的流程脚本见仓库的 `work/scripts/`（`README.md`、`acceptance-test.py`、`run-container.sh` 等）。这里只留**调用形状**，逐步说明与「每一步期望看到什么」见 [`docs/guides/USER_GUIDE.md`](../guides/USER_GUIDE.md) 与 `work/scripts/README.md`。
 
-约定：`$NAS_IP` 是你的 NAS 地址，`18081` 是 `PORT` 默认值；除步骤 0 外都要带 `-b cookies.txt`（上一步登录存下的 `mlm_session`）。
+约定：`$HOST_IP` 是你的宿主机地址，`18081` 是 `PORT` 默认值；除步骤 0 外都要带 `-b cookies.txt`（上一步登录存下的 `mlm_session`）。
 
 | # | 目的 | 请求 |
 |---|---|---|

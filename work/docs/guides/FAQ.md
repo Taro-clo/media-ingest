@@ -5,8 +5,8 @@
 >
 > 相关：[`USER_GUIDE.md`](USER_GUIDE.md)（网页怎么用）、[`DEPLOYMENT.md`](DEPLOYMENT.md)（安装/升级/备份/命令）、[`BASELINE.md`](../contracts/BASELINE.md) 与 [`COMPATIBILITY.md`](../contracts/COMPATIBILITY.md)（冻结行为与契约）。
 
-**命令标注**：【NAS 宿主】= SSH 登录 NAS 执行；【容器内】= `docker exec -it media-ingest <命令>`。
-后文的 `<NAS_IP>`、`/vol1/1000`、`Show A` 都是**示例值**。要调接口时先登录一次并存下 cookie，后面的 `-b cookies.txt` 都复用它：
+**命令标注**：【宿主机】= SSH 登录宿主机执行；【容器内】= `docker exec -it media-ingest <命令>`。
+后文的 `<HOST_IP>`、`/vol1/1000`、`Show A` 都是**示例值**。要调接口时先登录一次并存下 cookie，后面的 `-b cookies.txt` 都复用它：
 
 ```bash
 curl -s -c cookies.txt -X POST http://127.0.0.1:18081/api/auth/login \
@@ -49,7 +49,7 @@ curl -s -c cookies.txt -X POST http://127.0.0.1:18081/api/auth/login \
 | 能否验证"是同一个文件" | 能，`ls -i` 的 inode 号相同 | 不能 |
 | 改内容的相互影响 | 改一个等于改两个 | 互不影响 |
 
-NAS 上媒体库动辄几十 TB，复制会让存储需求**直接翻倍** —— 这是硬链接成为唯一合理实现的理由。
+媒体库动辄几十 TB，复制会让存储需求**直接翻倍** —— 这是硬链接成为唯一合理实现的理由。
 
 **反过来**：遇到建不了硬链接的情况，应用**宁可让任务失败并报错，也绝不偷偷改成复制**。因为静默复制会让用户以为没占空间、实际占了两份，而且"删了源还能播"的前提会悄悄失效。
 
@@ -59,7 +59,7 @@ NAS 上媒体库动辄几十 TB，复制会让存储需求**直接翻倍** —�
 
 **一句话答案**：不会。整个文件系统里那份数据只存**一份**。
 
-硬链接是在目录里加一个**新名字**指向**同一个 inode**。**【NAS 宿主】** 自己验：
+硬链接是在目录里加一个**新名字**指向**同一个 inode**。**【宿主机】** 自己验：
 
 ```bash
 ls -i /vol1/1000/Download/qbittorrent/Bangumi/"Show A"/Season\ 1/*.mkv
@@ -88,7 +88,7 @@ os.link 会返回 EXDEV。本应用不会回退为复制文件。
 
 这条判定在**运行前只警告、不硬拦**；真跑起来由逐文件结果给出结论 —— 失败就是 `link_failed`，不会悄悄复制一份冒充硬链接。
 
-**怎么判断**（**【NAS 宿主】**）：
+**怎么判断**（**【宿主机】**）：
 
 ```bash
 findmnt -T /vol1/1000/Download/qbittorrent -o TARGET
@@ -97,7 +97,7 @@ findmnt -T /vol1/1000/Library              -o TARGET
 
 两条 `TARGET`（挂载点）**相同**才行。**别用 `stat -c '%d'` 当依据**：`st_dev` 相同**不能**说明能建硬链接（两条独立 bind 就曾 `st_dev` 相同却分属两个挂载）。
 
-**怎么办**：把下载根与媒体库根放进**同一条 bind**（`MEDIA_ROOT` 取两者的共同父目录），别拆成两条。挂载形态与逐家 NAS 的结论见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §2.1、§3.3 与 [`COMPATIBILITY.md`](../contracts/COMPATIBILITY.md) §2；症状见 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 场景 1。
+**怎么办**：把下载根与媒体库根放进**同一条 bind**（`MEDIA_ROOT` 取两者的共同父目录），别拆成两条。挂载形态与各类宿主机的结论见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §2.1、§3.3 与 [`COMPATIBILITY.md`](../contracts/COMPATIBILITY.md) §2；症状见 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 场景 1。
 
 > 真要跨盘只有"复制"一条路，本应用刻意不做。你可以自己 `rsync` 一份副本，但要清楚那已经不是硬链接方案（空间翻倍、删源后两份互不相干）。
 
@@ -132,7 +132,7 @@ rm -rf /vol1/1000/Download/qbittorrent/Bangumi/"Show A"    # 媒体库那份仍�
 - 单库：编辑该媒体库 → 关掉「孤儿清理」（`orphan_cleanup`）；
 - 全局：设置页把 `orphan_cleanup_enabled` 设为 `false`（总开关）。
 
-**【NAS 宿主】** 也可以用接口改全局开关：
+**【宿主机】** 也可以用接口改全局开关：
 
 ```bash
 curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
@@ -205,10 +205,10 @@ curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
 1. **【浏览器】** 设置页 → 回调 / Hook → **重新生成 token**（旧的**立即失效**，且无法找回）；
 2. 复制页面上那条**完整的回调命令**；
 3. qBittorrent WebUI → 设置 → 下载 → **运行外部程序** → 粘贴替换；
-4. 验证（**【NAS 宿主】**，用新 token）：
+4. 验证（**【宿主机】**，用新 token）：
 
    ```bash
-   curl -s -X POST "http://<NAS_IP>:18081/api/hooks/qbittorrent?token=<新TOKEN>&name=Test&hash=abcdef1234567890"
+   curl -s -X POST "http://<HOST_IP>:18081/api/hooks/qbittorrent?token=<新TOKEN>&name=Test&hash=abcdef1234567890"
    ```
 
    返回里含 `matched` / `tasks` = 新 token 生效；`401` + `回调 token 不正确…` = 没生效（多半是多余的空格/引号，或 URL 里的 `&` 被 shell 截断）；`405` = 漏了 `-X POST`（回调路由只接受 POST）。
@@ -227,7 +227,7 @@ curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
 - 应用**默认不** `chmod` 媒体库：那会连带改掉源文件的权限位。只有显式开启 `permission_mode` 才会（且会连带改源，见 [`USER_GUIDE.md`](USER_GUIDE.md) §8.9）。
 - 想让 Emby 等其它账号读得到，正确做法是保证**源文件/源目录本身**对相应账号可读，而不是递归 `chmod` 媒体库整棵树（那会真的改到下载原文件）。
 
-**【NAS 宿主】** 自查是不是同一个 inode（同一文件在两侧各 `stat` 一次）：
+**【宿主机】** 自查是不是同一个 inode（同一文件在两侧各 `stat` 一次）：
 
 ```bash
 stat -c 'inode=%i  links=%h  %n' "/vol1/1000/Download/qbittorrent/Bangumi/Show A/Season 1/Show A S01E01.mkv" \
