@@ -1,0 +1,102 @@
+name: Build and publish image
+
+# 触发方式：
+#  1) 推 v* tag（例如 v1.0.0）→ 自动构建并推送多架构镜像；
+#  2) 手动 Run workflow → 指定版本号，从当前默认分支构建。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '镜像版本号（写入镜像 tag，例如 1.0.0）'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 计算镜像名（仓库名统一转小写，GHCR 要求全小写）
+        id: img
+        run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: 计算版本号
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            v='${{ github.event.inputs.version }}'
+          else
+            v="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU（arm64 模拟构建）
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 生成镜像标签
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.img.outputs.name }}
+          tags: |
+            type=raw,value=${{ steps.ver.outputs.version }}
+            type=raw,value=latest
+
+      # 构建上下文是 work/（Dockerfile 需要同时看到 app/ 与 web/），
+      # 与 work/docker-compose.yml 里的 context 保持一致。
+      - name: Build and push（linux/amd64 + linux/arm64）
+        uses: docker/build-push-action@v6
+        with:
+          context: work
+          file: work/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.ver.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 校验镜像清单（两个架构都在）
+        run: |
+          docker buildx imagetools inspect \
+            "ghcr.io/${{ steps.img.outputs.name }}:${{ steps.ver.outputs.version }}"
+
+      - name: 创建 GitHub Release（tag 触发时）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.ver.outputs.version }}
+          body: |
+            预构建镜像（linux/amd64、linux/arm64）：
+
+            ```bash
+            docker pull ghcr.io/${{ steps.img.outputs.name }}:${{ steps.ver.outputs.version }}
+            ```
+
+            部署方式见 README「快速开始（镜像部署，推荐）」；变更记录见 `work/CHANGELOG.md`。

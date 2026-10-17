@@ -5,6 +5,11 @@
 **首次公开发布。** 运行期版本串 `app.__version__ = "1.0.0"`；镜像 `media-ingest:1.0.0`
 （同时打 `latest`）；git tag `v1.0.0`。
 
+**分发**：源码在 GitHub Release；预构建镜像在 GHCR —— `ghcr.io/taro-clo/media-ingest:1.0.0`
+（`linux/amd64` + `linux/arm64`，由 GitHub Actions 从同一源码构建，因此镜像 ID 与下文本机构建的
+`0ec5d23658ce` 不同属正常）。镜像部署方式见 `README.md`「快速开始（镜像部署，推荐）」与
+`docs/guides/DEPLOYMENT.md` §4.6。
+
 本版包含两处行为改动（出厂默认特典判据新增 `CM集`、`permission_mode` 契约修订），
 以及完整发版实测结果，见下文。
 

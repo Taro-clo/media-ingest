@@ -232,12 +232,15 @@ du -sh <下载根>/<作品> <媒体库根>/<作品>                          # �
 
 ## 4. 安装步骤（从零到页面可访问）
 
+> 下面的 4.1–4.5 是**从源码构建**的完整流程（改代码、或访问不了镜像仓库时用）。
+> 只是想尽快跑起来：直接用**预构建镜像**，见 §4.6，不需要本机构建。
+
 ### 4.0 约定值
 
 | 项 | 值 |
 |---|---|
 | Compose 项目目录 | `<项目目录>`（示例 `/vol1/1000/Docker/media-ingest`） |
-| 镜像 / 容器名 | `media-ingest:latest` / `media-ingest` |
+| 镜像 / 容器名 | 源码构建 `media-ingest:latest`；镜像部署 `ghcr.io/taro-clo/media-ingest:<版本>`；容器名都是 `media-ingest` |
 | 数据卷宿主目录 | `<数据卷>`（默认 `<项目目录>/data`，§2.3） |
 | 端口 / 访问地址 | `18081` / `http://<NAS_IP>:18081` |
 | 容器内运行用户 | `app`（`<PUID>:<PGID>`，出厂示例 `1000:1001`） |
@@ -348,6 +351,33 @@ media-ingest  media-ingest:latest  "/usr/local/bin/…"  Up 45 seconds (healthy)
 
 打开 `http://<NAS_IP>:18081`：`.env` 填了 `ADMIN_USERNAME` / `ADMIN_PASSWORD` → 直接用该账号登录；没填 → 页面引导你**创建管理员**（用户名 + 密码，**至少 8 位**）。登录后立刻：① 设置页改密码（若用 `.env` 初始化），并把 `.env` 里的 `ADMIN_PASSWORD` 删掉；② 设置页「回调 / Hook」复制 `hook_token` 与完整回调命令（§5 要用）；③ 新建媒体库前先看 [`USER_GUIDE.md`](USER_GUIDE.md)。
 
+### 4.6 用预构建镜像安装（不构建，推荐）
+
+镜像由 GitHub Actions 构建，多架构（`linux/amd64`、`linux/arm64`），推送到 GHCR：
+`ghcr.io/taro-clo/media-ingest:<版本>`。**不需要源码、不需要本机 Docker 构建、不需要 `.env`**。
+
+**【NAS 宿主】**
+
+```bash
+mkdir -p <项目目录> && cd <项目目录>
+curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+docker compose -f docker-compose.release.yml ps        # 出现 (healthy) 即成功
+```
+
+- 默认值：`MEDIA_ROOT=/vol1/1000`、数据卷 `/vol1/1000/Docker/media-ingest/data`、端口 `18081`、版本 `1.0.0`。
+- 改路径 / 端口：在同目录放 `.env`（`cp .env.example .env` 后改），或用环境变量覆盖，例如
+  `MEDIA_ROOT=/mnt/media MLM_DATA_DIR=/mnt/media/docker/media-ingest/data docker compose -f docker-compose.release.yml up -d`。
+- 改版本：`MLM_VERSION=latest` 跟随最新发布，或写具体版本号；换版本后 `pull` + `up -d` 即可（§6.4）。
+- `MEDIA_ROOT` 仍必须是宿主上真实存在的目录；**下载目录与媒体库在同一个挂载里**这条不变量不变（§2、§3）。
+
+后续验证、创建管理员、接 qBittorrent 与源码构建完全相同：§4.4 → §4.5 → §5。
+
+> GHCR 在国内部分网络下可能较慢或不可达；这种情况用源码构建（§4.3），或先在有网络的地方
+> `docker pull` 后 `docker save -o media-ingest.tar ghcr.io/taro-clo/media-ingest:1.0.0`，拷到 NAS 再
+> `docker load -i media-ingest.tar`，然后把 compose 里的 `image:` 改成加载后的镜像名。
+
 ---
 
 ## 5. 接入 qBittorrent（下载完成自动触发）
@@ -456,7 +486,16 @@ docker compose up -d --build
 
 ### 6.4 只升级不重建（用预构建镜像）
 
-`docker compose pull && docker compose up -d` —— 数据卷依然不受影响。
+镜像部署（§4.6）换版本只需要重新拉镜像，不构建、不碰数据卷：
+
+```bash
+cd <项目目录>
+# 先备份（§7），再把 MLM_VERSION 改成目标版本（或改 compose 里的镜像 tag）
+MLM_VERSION=1.0.1 docker compose -f docker-compose.release.yml pull
+MLM_VERSION=1.0.1 docker compose -f docker-compose.release.yml up -d
+```
+
+源码构建的部署没有 `pull` 这一步，走 §6.2 的 `docker compose up -d --build`。
 
 ### 6.5 升级后必做：确认两个路径白名单
 

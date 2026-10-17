@@ -39,6 +39,7 @@ reports/
 README.md
 CHANGELOG.md
 docker-compose.yml
+docker-compose.release.yml
 AGENTS.md
 
 # ---- 机密与运行期状态：绝不进镜像 -------------------------------------------

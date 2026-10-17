@@ -4,6 +4,7 @@
 **只建硬链接 + 按规则改名，不复制文件、不改动下载目录里的源文件。**
 
 单 Docker 镜像交付（后端 FastAPI + 原生 JS WebUI，中文界面），当前版本 **1.0.0**。
+提供预构建多架构镜像（x86_64 / arm64），**两条命令即可部署**，不克隆源码、不需要本地构建。
 
 ## 它解决什么问题
 
@@ -38,14 +39,54 @@
 |---|---|
 | 系统 | 任意 Linux（NAS、服务器、PC），x86_64 或 arm64 |
 | 运行时 | Docker 20.10+ 与 Docker Compose v2 |
+| 镜像 | 预构建多架构镜像 `ghcr.io/taro-clo/media-ingest`（linux/amd64、linux/arm64）；镜像部署无需本地构建 |
 | **关键前提** | **下载目录与媒体库必须在同一个挂载点内** —— 硬链接的内核限制；拆成两个挂载会报 `Invalid cross-device link` |
 | 端口 | 默认 `18081`（可改） |
 | 权限 | 容器内以非 root 用户（`PUID` / `PGID`）运行；需对下载目录可读、对媒体库可写 |
 | 可选 | qBittorrent（自动触发）；Emby / Jellyfin（消费媒体库） |
 
-## 快速开始
+## 快速开始（镜像部署，推荐）
 
-以 NAS 为例（下面的宿主路径按你的实际环境修改）：
+不需要克隆源码，只需要一个 compose 文件（仓库里的 [`work/docker-compose.release.yml`](work/docker-compose.release.yml)）。
+以下路径以 NAS 的 `/vol1/1000` 为例，按你的实际环境修改。
+
+1. 确认媒体父目录存在（下载目录与媒体库都在它下面）：
+   ```bash
+   mkdir -p /vol1/1000/Docker/media-ingest/data
+   ```
+2. 取 compose 文件（也可以 `git clone` 仓库后用 `work/docker-compose.release.yml`）：
+   ```bash
+   curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
+   ```
+3. 启动（首次会拉取镜像；数据目录默认 `/vol1/1000/Docker/media-ingest/data`，端口默认 `18081`）：
+   ```bash
+   docker compose -f docker-compose.release.yml pull
+   docker compose -f docker-compose.release.yml up -d
+   docker compose -f docker-compose.release.yml ps      # STATUS 列出现 (healthy) 即成功
+   ```
+4. 浏览器打开 `http://<NAS 的 IP>:18081`，按向导创建管理员，然后新建第一个媒体库。
+
+换路径 / 端口无需改文件，用环境变量覆盖即可（也可在同目录放 `.env`，写法同 `.env.example`）：
+
+```bash
+MEDIA_ROOT=/mnt/media \
+MLM_DATA_DIR=/mnt/media/docker/media-ingest/data \
+DEFAULT_SOURCE_ROOT=/mnt/media/Download \
+DEFAULT_TARGET_ROOT=/mnt/media/Library \
+PUID=1000 PGID=1000 PORT=18081 \
+  docker compose -f docker-compose.release.yml up -d
+```
+
+- `MEDIA_ROOT`：下载目录与媒体库的**共同父目录**，必须已存在，且容器内路径与宿主一致。
+- `DEFAULT_SOURCE_ROOT` / `DEFAULT_TARGET_ROOT`：**只在首次建库**时作为"允许的源/目标根"播种；已部署实例请在 WebUI「设置」页改。
+- `MLM_VERSION=latest` 可跟随最新发布，默认钉住 `1.0.0`。
+
+> 失败排查、升级回滚与备份见 [`work/docs/guides/DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md)；
+> 从零开始的完整演练见 [`work/examples/nas-deploy.md`](work/examples/nas-deploy.md)。
+
+## 快速开始（从源码构建）
+
+适合需要改代码、或无法访问 GHCR 的环境。以 NAS 为例（下面的宿主路径按你的实际环境修改）：
 
 1. 把 `work/` 整个目录（或发布源码包解出的内容）放到 NAS，例如 `/vol1/1000/Docker/media-ingest`；
    确认 `.env` 里的 `MEDIA_ROOT`（下载目录与媒体库的共同父目录，默认 `/vol1/1000`）在宿主上**已存在**。
