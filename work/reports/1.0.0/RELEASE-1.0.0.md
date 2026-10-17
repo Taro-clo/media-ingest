@@ -5,7 +5,7 @@
 - **镜像**：`media-ingest:1.0.0`（同时打 `latest`）= `0ec5d23658ce`，约 181 MB
 - **交付**：git tag `v1.0.0`；归档 `media-ingest-v1.0.0.bundle`、`src-v1.0.0.tar.gz`（各带 `.sha256`），
   bundle 克隆自检通过
-- **环境**：宿主上用 `python:3.11-slim` 基础镜像构建；验收与两库测试都跑在**全新数据库 + 全新目标树**上
+- **环境**：基础镜像 `python:3.11-slim`；验收与两库测试都跑在**全新数据库 + 全新目标树**上
 
 ## 1. 镜像构建
 
@@ -39,8 +39,8 @@ MLM_ADMIN_PW=… MLM_QBT_PASS=… python3 scripts/acceptance-test.py
 
 | 库 | 处理器 | 源文件 | 目标 | 首次全量 | 复跑 |
 |---|---|---|---|---|---|
-| `1.0.0 全量-bangumi` | bangumi | 8534 | 54 作品 / 8534 文件（全部硬链接） | `linked 8534 / renamed 1251 / extras_classified 49 / name_collisions 34 / kept_unresolved_episode 49 / unscoped_works 7`，6.1 s | `linked 0 / skipped 54`，3.1 s |
-| `1.0.0 全量-movie` | movie | 3986 | 45 作品 / 3986 文件（全部硬链接） | `linked 3986 / renamed 46 / extras_classified 1`，3.1 s | `linked 0 / skipped 45`，3.1 s |
+| `bangumi` | bangumi | 8534 | 54 作品 / 8534 文件（全部硬链接） | `linked 8534 / renamed 1251 / extras_classified 49 / name_collisions 34 / kept_unresolved_episode 49 / unscoped_works 7`，6.1 s | `linked 0 / skipped 54`，3.1 s |
+| `movie` | movie | 3986 | 45 作品 / 3986 文件（全部硬链接） | `linked 3986 / renamed 46 / extras_classified 1`，3.1 s | `linked 0 / skipped 45`，3.1 s |
 
 - 两库跑在**同一个实例、两个互不相同的目标根**上，符合「一个库一个目标根」的部署约定。
 - 复跑计数证明**幂等**：第二次运行只做跳过，不再建链接、不再重命名。
@@ -55,7 +55,7 @@ MLM_ADMIN_PW=… MLM_QBT_PASS=… python3 scripts/acceptance-test.py
 
 ## 6. 与部署验收的分工
 
-本报告覆盖**静态自验 + 容器内测试 + 实机全量入库**；镜像构建、容器 (healthy)、真实硬链接的
+本报告覆盖**静态自验 + 容器内测试 + 完整全量入库**；镜像构建、容器 (healthy)、真实硬链接的
 部署侧验收步骤见 [`../../docs/guides/DEPLOYMENT.md`](../../docs/guides/DEPLOYMENT.md)。
 
 ## 7. 复现步骤

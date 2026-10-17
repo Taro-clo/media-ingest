@@ -1,84 +1,124 @@
-# media-ingest —— 媒体入库整理（Media Ingest，原生实现）
+# 媒体入库整理（Media Ingest）
 
-把 qBittorrent 之类的下载目录变成 Emby / Jellyfin 能直接用的媒体库：
-**只建硬链接 + 按规则改名，不复制、不改动源文件**。后端 FastAPI + 原生 JS WebUI，
-以单个 Docker 镜像交付，在局域网 NAS（如飞牛 fnOS，任意 Linux NAS 均可）上运行。
+把 qBittorrent 等下载器收下来的文件，变成 Emby / Jellyfin 能直接扫描的媒体库：
+**只建硬链接 + 按规则改名，不复制文件、不改动下载目录里的源文件。**
 
-## 命名
+单 Docker 镜像交付（后端 FastAPI + 原生 JS WebUI，中文界面），当前版本 **1.0.0**。
 
-| 名称 | 值 | 说明 |
-|---|---|---|
-| 产品名（中文 / 英文） | **媒体入库整理** / **Media Ingest** | WebUI 标题、侧栏、日志、API 标题 |
-| 仓库目录 | `media-ingest` | 仓库根目录名 |
-| 镜像名 / compose 项目名 / 服务名 / 容器名 | `media-ingest` | `docker-compose.yml`、`examples/docker-compose.nas.yml`、构建与运维脚本 |
-| 代码标识 | `service` / `container_name` = `media-ingest` | `GET /api/system/health` |
-| 工程目录 | `work/` | 仓库内的现行工程源码根 |
-| NAS 宿主目录（示例） | `/vol1/1000/Docker/media-ingest/…` | 示例部署目录：数据卷、`backups/` 都在它下面；可换成你的路径（文档与脚本的默认值取此路径） |
-| 发布镜像 | `media-ingest:1.0.0`（同时打 `latest`） | 2026-10-16 首发 |
+## 它解决什么问题
 
-**不随命名改变**：`/data` 布局、`mlm.db` 与 `settings` 表、`MLM_*` 环境变量、`/srv/mlm` 镜像内路径、
-`app` Python 包名、Git 仓库目录 `media-ingest`。
+- 下载目录里的文件名五花八门（`[某字幕组] 番剧 - 01 [1080p].mkv`），Emby / Jellyfin 认不出来；
+- 直接在下载目录里整理又会破坏做种（qBittorrent 靠原路径与原文件名做种）；
+- 手动改名、建链接，一次几百个文件，容易漏、也容易改错。
 
-> 归档靠 git tag + 宿主备份目录里的 bundle / 源码包（示例路径
-> `/vol1/1000/Docker/media-ingest/backups/`）—— `media-ingest-v1.0.0.bundle` + `.sha256`、
-> `src-v1.0.0.tar.gz` + `.sha256`。
-> 归档不入库；需要时从该备份目录取回。
+本项目的做法：在媒体库目录里为目标文件建立**硬链接**（同一份数据的另一个名字），再按规则改名。
+源文件一个字节都不动，做种不受影响；媒体库与下载目录共享同一份磁盘空间，不会占双份。
 
-## 现行工程：`work/`
+## 工作原理
 
-仓库根只保留**现行工程** `work/`：源码、测试、文档、工具链与验收报告都在它下面。
-
-| 入口 | 内容 |
-|---|---|
-| [`work/README.md`](work/README.md) | 工程总入口：功能、边界、目录、部署、运维、故障处理 |
-| [`work/CHANGELOG.md`](work/CHANGELOG.md) | 版本变更记录（`[1.0.0]` 首发） |
-| [`work/docs/contracts/ARCHITECTURE.md`](work/docs/contracts/ARCHITECTURE.md) | 架构与接口契约（改动需同步本文件与 CHANGELOG） |
-| [`work/docs/contracts/BASELINE.md`](work/docs/contracts/BASELINE.md) | 行为基线（历史分析，不构成现行约束） |
-| [`work/docs/meta/STRUCTURE.md`](work/docs/meta/STRUCTURE.md) | 目录结构与命名约定 |
-| [`work/docs/`](work/docs/) | **文档三桶**：[`contracts/`](work/docs/contracts/)（AI 契约）、[`guides/`](work/docs/guides/)（用户手册）、[`meta/`](work/docs/meta/)（结构与证据）—— 导航见 [`work/docs/README.md`](work/docs/README.md) |
-| [`work/scripts/README.md`](work/scripts/README.md) | 构建 / 起容器 / pytest / 全量验收 / 归档工具链 |
-| [`work/reports/README.md`](work/reports/README.md) | 验收报告索引与「验收证据在哪」 |
-| [`work/examples/`](work/examples/) | compose 样例、NAS 部署说明、部署资产自检脚本 |
-
-## 当前状态
-
-- **已发布**：**1.0.0**（首发）—— 镜像 `media-ingest:1.0.0`（同时打 `latest`），约 181 MB。
-  容器内 pytest `525 passed / 7 skipped / 2 errors`（2 个 ERROR 是测试夹具误报），
-  全量验收 `PASS=56 FAIL=0`；两个全量测试库（`bangumi` 8534 文件 → 54 作品、`movie` 3986 文件 → 45 作品）
-  全部硬链接、复跑幂等、源树零改动。详见 [`work/CHANGELOG.md`](work/CHANGELOG.md) 的 `[1.0.0]` 小节。
-- **tag**：**`v1.0.0`**。
-- **归档**：`media-ingest-v1.0.0.bundle` 与 `src-v1.0.0.tar.gz`（各带 `.sha256`），放在宿主备份目录里
-  （示例 `/vol1/1000/Docker/media-ingest/backups/`）。
-- **一次性容器命名**：统一用 `media-ingest-*` 前缀
-  （`media-ingest-test` / `media-ingest-pytest` / `media-ingest-minimal-repro` / `media-ingest-builder`）。
-- **验收脚本需要环境变量**：`MLM_ADMIN_PW` / `MLM_QBT_PASS` 必须由环境变量传入，缺失即 `exit 2`
-  （仓库内不含任何真实口令）。
-
-## 最短上手路径
-
-```bash
-cd work
-cp .env.example .env            # 改 MEDIA_ROOT 等
-docker compose up -d            # 首次启动后在 WebUI 里 POST /api/auth/setup 建管理员
+```
+/vol1/1000/Download/qbittorrent/番剧/Season 01/xxx.mkv   ← 源文件（保持原样）
+                                     │ 硬链接 + 改名
+                                     ▼
+/vol1/1000/Library/番剧/番剧 S01E01.mkv                  ← 同一 inode 的另一个名字
 ```
 
-发版/验收流程（在部署宿主上跑，工具链说明见 `work/scripts/README.md`）：
-`build-image.sh` → `run-container.sh` → `acceptance-test.py` → `pytest-in-container.sh` → `backup-to-nas.sh`。
+## 功能
 
-## 已知的坑（源码打包与验收）
+- **硬链接入库**：媒体库里的文件与源文件是同一份数据；源树全程只读。
+- **可配置的命名规则**：内置番剧 / 电影处理器，命名段、季集解析、特典识别都可在 WebUI 里改，配置与数据库双向同步。
+- **自动触发**：qBittorrent 下载完成回调触发入库；漏掉回调时可用「扫描补偿」补回来。
+- **任务可追踪**：每个作品一条记录，能看到处理了哪些文件、失败原因，可重试、可重做单个作品。
+- **幂等**：重复运行不会重复建链或重复改名，可安全重跑。
+- **中文 WebUI**：媒体库、任务、处理器、设置、待办看板。
 
-- **源码打包必须先用 LF**：Windows 上若开了 `core.autocrlf=true`，`git archive` 默认产出 CRLF，
-  会让镜像内容与 Linux 端不一致。用
-  `git -c core.autocrlf=false archive --format=tar.gz -o <out>.tgz HEAD:work`。
-- **`acceptance-test.py` 必须在全新数据库上跑**：它只清媒体库与目标树，不清 DB 里的逐文件决策缓存；
-  在同一份 DB 上复跑会得到 `linked 8534 / renamed 0`，看着像失败其实不是。
-- **不要用 `sed -i "s/\r$//"` 处理这些脚本**：中文 Python 源码会被切掉字节
-  （`import http.cookiejar` → `import http.cookieja`）。仓库文件本来就是 LF，直接跑即可。
-- **`/data` 是唯一必须备份的东西**：`mlm.db`、`secret.key`、`config/{libraries.yaml,processors/*.yaml}`、`logs/`。
-  全局设置（含 L3 特典判据 `extras_patterns`）存在 `mlm.db` 的 `settings` 表里，换设备要迁移 `/data`。
+## 运行要求
 
-## 许可证
+| 项 | 要求 |
+|---|---|
+| 系统 | 任意 Linux（NAS、服务器、PC），x86_64 或 arm64 |
+| 运行时 | Docker 20.10+ 与 Docker Compose v2 |
+| **关键前提** | **下载目录与媒体库必须在同一个挂载点内** —— 硬链接的内核限制；拆成两个挂载会报 `Invalid cross-device link` |
+| 端口 | 默认 `18081`（可改） |
+| 权限 | 容器内以非 root 用户（`PUID` / `PGID`）运行；需对下载目录可读、对媒体库可写 |
+| 可选 | qBittorrent（自动触发）；Emby / Jellyfin（消费媒体库） |
 
-[MIT](LICENSE)。想用就用：复制、修改、改名、商用、再分发都不需要事先征求同意，唯一要求是保留
-`LICENSE` 里的版权声明（`Copyright (c) 2026 The Media Ingest Authors`）。软件按「原样」提供、
-不附带任何担保；它会在你的硬盘上建硬链接并改名，请先在自己的数据上试。
+## 快速开始
+
+以 NAS 为例（下面的宿主路径按你的实际环境修改）：
+
+1. 把 `work/` 整个目录（或发布源码包解出的内容）放到 NAS，例如 `/vol1/1000/Docker/media-ingest`；
+   确认 `.env` 里的 `MEDIA_ROOT`（下载目录与媒体库的共同父目录，默认 `/vol1/1000`）在宿主上**已存在**。
+2. 复制配置并修改三项：
+   ```bash
+   cd /vol1/1000/Docker/media-ingest
+   cp .env.example .env
+   vi .env          # 至少改 PUID / PGID / MEDIA_ROOT
+   ```
+3. 构建并启动（首次构建需要几分钟；数据目录默认建在部署目录下的 `./data`，想放别处就在 `.env` 里设 `MLM_DATA_DIR`）：
+   ```bash
+   docker compose up -d --build
+   ```
+4. 等容器变健康：
+   ```bash
+   docker compose ps          # STATUS 列里要出现 (healthy)
+   ```
+5. 浏览器打开 `http://<NAS 的 IP>:18081`，按向导创建管理员，然后新建第一个媒体库。
+
+> 逐条命令、预期输出的完整演练见 [`work/examples/nas-deploy.md`](work/examples/nas-deploy.md)；
+> 每个选项的详细说明见 [`work/docs/guides/DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md)。
+
+## 第一次使用
+
+- 建库前 5 分钟自检（源 / 目标同挂载、目录可读写）→ [`work/docs/guides/USER_GUIDE.md`](work/docs/guides/USER_GUIDE.md) §3
+- 新建番剧库 / 电影库 / 自定义库的完整例子 → [`USER_GUIDE.md`](work/docs/guides/USER_GUIDE.md) §4
+- `.env` 每一项的含义与默认值 → [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §4.2
+- 接上 qBittorrent，下载完成自动入库 → [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §5
+
+## 数据、备份与升级
+
+- 运行期数据都在 `/data` 卷里：`mlm.db`、`secret.key`、`config/`、`logs/`。**这是唯一必须备份的东西**，换机器时迁走它即可。
+- 备份与恢复 → [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §7
+- 升级与回滚 → [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §6
+
+## 出问题时
+
+| 症状 | 先看 |
+|---|---|
+| 容器起不来 / 显示 `unhealthy` | [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §4.4.1、[`TROUBLESHOOTING.md`](work/docs/guides/TROUBLESHOOTING.md) |
+| 硬链接失败（`Invalid cross-device link`） | [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §2.1、§3 |
+| `Permission denied` / 属主问题 | [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §10 |
+| 下载完成但没触发入库 | [`USER_GUIDE.md`](work/docs/guides/USER_GUIDE.md) §9、[`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §5 |
+| 已确认的限制与不修项 | [`work/docs/meta/KNOWN_ISSUES.md`](work/docs/meta/KNOWN_ISSUES.md) |
+
+## 文档导航
+
+| 读者 | 文档 |
+|---|---|
+| 使用 | [`work/docs/guides/`](work/docs/guides/)：`USER_GUIDE.md`（WebUI 使用）、`DEPLOYMENT.md`（部署 / 升级 / 备份）、`TROUBLESHOOTING.md`、`FAQ.md` |
+| 二开 / 维护 | [`work/docs/contracts/`](work/docs/contracts/)：`ARCHITECTURE.md`、`API.md`、`PROCESSORS.md`、`BASELINE.md`、`COMPATIBILITY.md`；[`work/docs/meta/`](work/docs/meta/)：`STRUCTURE.md`、`TEST-MAP.md`、`KNOWN_ISSUES.md`、`EVIDENCE.md`；[`work/scripts/README.md`](work/scripts/README.md) |
+| 版本与验收 | [`work/CHANGELOG.md`](work/CHANGELOG.md)、[`work/reports/`](work/reports/) |
+
+全部文档索引与阅读顺序：[`work/docs/README.md`](work/docs/README.md)。
+
+## 仓库结构
+
+```
+media-ingest/
+├── work/                现行工程：源码、测试、文档、脚本、报告
+│   ├── app/  web/       后端与前端
+│   ├── docker/          Dockerfile、entrypoint、healthcheck
+│   ├── docs/            文档（guides / contracts / meta）
+│   ├── examples/        可直接抄的部署示例与自检脚本
+│   ├── scripts/         构建 / 测试 / 验收 / 归档工具链
+│   └── reports/         验收报告
+└── README.md            本文件
+```
+
+镜像名 / 容器名 / 数据目录布局等命名约定见 [`work/docs/meta/STRUCTURE.md`](work/docs/meta/STRUCTURE.md)。
+
+## 版本与许可
+
+- 当前版本 **1.0.0**；变更记录见 [`work/CHANGELOG.md`](work/CHANGELOG.md)。
+- [MIT](LICENSE) 许可：可自由复制、修改、商用、再分发，保留版权声明即可。
+  软件按「原样」提供、不附带担保；它会在你的硬盘上建硬链接并改名，请先在测试数据上试。

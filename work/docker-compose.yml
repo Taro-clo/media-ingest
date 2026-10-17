@@ -1,69 +1,23 @@
 # =============================================================================
-# NAS 媒体库硬链接管理器 —— docker-compose.yml（仓库内模板）
+# media-ingest —— docker-compose.yml（仓库内模板）
 # =============================================================================
-# 部署位置：宿主 /vol1/1000/Docker/media-ingest/
-# 一次性准备：
-#     sudo mkdir -p /vol1/1000/Docker/media-ingest/data
-#     sudo chown -R 1000:1001 /vol1/1000/Docker/media-ingest
-#     cd /vol1/1000/Docker/media-ingest && cp .env.example .env
-#     # 若不是从 git 部署，把本文件与 docker/、app/、web/ 一起放到该目录
-# 启动：
-#     docker compose up -d --build
-#     docker compose ps            # STATUS 应出现 (healthy)
-#     docker compose logs -f media-ingest
+# 快速开始（详见 docs/guides/DEPLOYMENT.md）：
+#     cp .env.example .env          # 按需修改 PUID/PGID/MEDIA_ROOT 等
+#     docker compose up -d
+#     docker compose ps             # STATUS 出现 (healthy) 即成功
 #
-# ⚠️ .env 不会被应用代码读取，只被 docker compose 用于"变量插值"；
-#    容器内的真实环境变量来自下面 environment: 段。两者配合才生效。
-# =============================================================================
-# 挂载与硬链接的**核心约束**（部署前必读："单一共同父挂载"）
-# =============================================================================
-# 1) ⚠️⚠️ **源目录与目标媒体库必须落在容器内的同一个挂载**，因此只能挂**一个共同父目录**。
-#    同一个 st_dev、同一个 fsid、同一个子卷也不例外（btrfs）：只要源与目标是
-#    **两条独立的 bind**，`ln`/`os.link()` 一律返回 **[Errno 18] EXDEV (Invalid cross-device link)**。
-#    根因在内核 `fs/namei.c: do_linkat()`：它比较 `old_path.mnt != new_path.mnt`
-#    —— 比的是**挂载身份（mount ID）**，不是 `st_dev`、不是文件系统 UUID、不是子卷。
-#    两个目录即使 `stat -c %d` 完全相同，只要来自两条 bind，就是两个不同 mount ⇒ 必然 EXDEV。
-#    源与目标本来就位于同一个挂载里（示例：同属 `/vol1`）时，把它们拆成两条 bind 只会人为制造两个挂载。
-#    ⇒ **正确做法（本文件采用的单一共同父挂载，容器路径 = 宿主路径）**：把它们的共同父目录挂成**一条** bind，并且
-#      **容器内路径 = 宿主路径**：
-#          - ${MEDIA_ROOT:-/vol1/1000}:${MEDIA_ROOT:-/vol1/1000}
-#      源  例如 /vol1/1000/Download（默认白名单根；它下面任意子目录都可建库）
-#      目标 例如 /vol1/1000/Library
-#    ⇒ **不要再把 /downloads、/library 拆成两条 bind**（拆成两条是错误形态）。拆了就永远建不出
-#      硬链接，任务会报 `link_failed`，日志里是 `[Errno 18] Invalid cross-device link`。
+# 部署前必读：**源目录与媒体库必须落在同一个挂载里**（硬链接不能跨挂载）。
+# 因此这里只挂一条"共同父目录"，且容器内路径 = 宿主路径：
+#     - ${MEDIA_ROOT:-/vol1/1000}:${MEDIA_ROOT:-/vol1/1000}
+# 源与目标都是它的子路径（如 /vol1/1000/Download、/vol1/1000/Library）。
+# ⚠️ 不要拆成 /downloads、/library 两条 bind：那样硬链接必然失败（EXDEV）。
+# ⚠️ MEDIA_ROOT 必须是宿主上真实存在的目录，否则 Docker 会以 root 新建空目录。
 #
-# 2) 为什么"容器内路径 = 宿主路径"：`HOST_PATH_MAP` 因此变成**恒等映射**，
-#    日志、WebUI、`GET /api/system/info` 里显示的就是宿主真实路径，也不需要任何路径换算。
-#    应用侧仍然保留 `HOST_PATH_MAP` 作为"非恒等部署"的逃生口与纯展示用途。
-#
-# 3) **没有了 `/downloads:ro` 这层结构性保证怎么办**（必须诚实说明）：
-#    单挂载形态下，内核让"源单独 :ro 挂载"与"跨路径硬链接"互斥 —— 二者不可兼得。
-#    替代保证从「结构性」降级为「可验证的」：
-#      a) 代码层**永不写源目录**（只 stat / walk / link；link 只增加源 inode 的链接计数）；
-#      b) 任务**前后逐文件源完整性核对**（快照 `相对路径 + size + ino + mtime_ns`，任何差异
-#         都在 `Task.result.warnings[]` 告警并列出路径，见 `Task.result.source_integrity`）；
-#      c) 现成测试 `tests/test_no_source_mutation.py`（每次执行后源树快照必须逐项不变）。
-#    注意核对**不含** `nlink`/`ctime`：硬链接本身就会让源文件 nlink+1、ctime 变化。
-#    另外应用**绝不回退为复制文件**（复制会让媒体库体积瞬间翻倍，且源文件后来被改写时
-#    库里的副本不会跟着变，静默产生语义错误）：跨挂载时宁可任务失败也不复制。
-#
-# 4) 容器**绝不能写媒体挂载**（失去只读挂载后必须靠纪律补上，且有启动期检查）：
-#    entrypoint 只对 `/data`（与 `/srv/mlm`）做 `chown -R`，**绝不**对 MEDIA_ROOT 下的任何路径
-#    做 chown/chmod/mkdir/touch；healthcheck 全程只发 HTTP 请求，不落任何文件。
-#    理由：媒体库可能极大，递归改属主既慢又危险（硬链接共享 inode，改属主会连带改到
-#    qBittorrent 侧那些源文件的属主）。
+# .env 只被 docker compose 用于 ${VAR} 插值，应用代码不读它；容器内真正生效的
+# 环境变量是下面 environment: 段里逐条写出的值。
 # =============================================================================
 
 name: media-ingest
-
-# 宿主路径说明（volumes 里写的是**绝对路径**，下面这份对照表方便迁移时替换）：
-#   /vol1/1000                              → /vol1/1000        rw（单一共同父挂载）
-#     ├─ Download                           源树（硬链接的"来源"，应用只读它）
-#     │    └─ qbittorrent                   qBittorrent 的保存目录（在源树之内，可单独建库）
-#     └─ Library                            目标媒体库（硬链接落在这里）
-#   /vol1/1000/Docker/media-ingest/data → /data         rw
-#                                                （/data/config 就在这个卷里）
-# ⚠️ 源与目标必须是上面那个共同父挂载**里面**的路径；只要拆成两条 bind，硬链接必然失败。
 
 services:
   media-ingest:
@@ -74,150 +28,57 @@ services:
     image: media-ingest:latest
     container_name: media-ingest
 
-    # 架构要求：单进程 + uvicorn --workers 1（见 Dockerfile CMD）。
-    # 现行硬链接实现（app/processors/hardlink.py）对日志文件做"读-改-写整份"，多 worker 会互相覆盖
-    # 请勿开 replicas，也不要加 --workers。
+    # 单进程运行：硬链接日志是"读-改-写整份"，多 worker 会互相覆盖。
+    # 请勿开 replicas，也不要给 uvicorn 加 --workers。
     restart: unless-stopped
 
-    # ⚠️ 最常见的误解：`env_file: .env` 的**唯一**作用是让上面的 ${VAR} 能被替换
-    #    （compose 的"变量插值"），它**不会**把这些变量注入容器！
-    #    真正进容器的环境变量只来自下面的 `environment:` 段 —— 所以 .env 里的
-    #    PUID/PGID/MEDIA_ROOT/DEFAULT_*/PORT 等必须同时在 `environment:` 里出现一次
-    #    才会生效（`environment:` 里逐条都写了 ${VAR:-默认值} 插值，一一对应）。
-    #    （应用代码也**不读** .env 文件，它只读进程环境变量。）
     env_file:
       - .env
 
     environment:
-      # ---- 运行身份：宿主 youruser(uid=1000):Users(gid=1001) ----
-      PUID: "${PUID:-1000}"      # 容器内 app 用户 uid；须能读源目录、能写目标媒体库
-      PGID: "${PGID:-1001}"      # 容器内 app 用户主 gid
-      # ---- 时区与字符集（现行硬链接实现用 open(LOG_FILE) 且未指定 encoding，依赖 locale）----
+      # 运行身份：容器内进程的 uid/gid，须能读下载源、能写媒体库。
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1001}"
+      # 时区与字符集（写中文日志依赖 UTF-8 locale，不要改成 C/POSIX）。
       TZ: "${TZ:-Asia/Shanghai}"
       LANG: "C.UTF-8"
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
-      # ---- 应用路径与端口 ----
-      DATA_DIR: "/data"          # SQLite / 任务日志 / 库日志 / secret.key / config 目录
-      # 配置文件镜像目录（libraries.yaml + processors/*.yaml）。
-      # 它在 /data 卷内，因此**不需要**额外挂载；WebUI 每次保存都会原子写出这里，
-      # 后台线程按 DB 设置键 `config_sync_interval_seconds` 的周期比对文件哈希，
-      # 外部编辑会被导入 DB（周期怎么改见下面那段注释）。
-      # 想单独备份/版本化配置，可另加一条 bind（**二选一**，别与 /data 重复挂同一目录）：
-      #     - "/vol1/1000/Docker/media-ingest/config:/data/config"
-      # 单独挂时请在宿主先 `mkdir -p .../config && chown -R 1000:1001 .../config`，
-      # 否则 Docker 会以 root 建目录，entrypoint 的递归 chown 也碰不到这个独立挂载点
-      # （它只递归 /data 本身，**不会**进入被其它挂载覆盖的子路径）。
-      # ⚠️ 若把 DATA_DIR 改成 /data 以外的路径，entrypoint 会用 ${DATA_DIR}/config 兜底
-      #    并把它 **export** 给应用进程（应用侧 config.py 的 CONFIG_DIR 读同一个变量，
-      #    语义一致）；但要显式写出来最不容易踩坑。
+      # 数据目录（容器内）：SQLite、任务日志、库日志、secret.key、config。
+      DATA_DIR: "/data"
+      # 配置文件镜像目录（在 /data 卷内，无需单独挂载）。
       CONFIG_DIR: "${CONFIG_DIR:-/data/config}"
-      # ⚠️ 这里**故意没有** CONFIG_SYNC_INTERVAL_SECONDS。
-      # 应用**不读**这个 env：配置同步周期的唯一真源是 DB 设置键
-      # `config_sync_interval_seconds`（默认 5 秒，区间 0–86400，0 = 后台线程仍启动但
-      # 不导入外部改动），在 WebUI「设置」页或 PUT /api/settings 改。
-      # 放一个同名 env 会让人以为改了周期而实际不生效（最难排查的一类问题），
-      # 别再抄回来。
-      # 顺带提醒：**日志不在 /data/config 里**，库日志与 hard_links.log 都在 /data/logs
-      # （两者同属 /data 卷）。单独 bind 了 config 目录的人只备份了配置、没备份日志；
-      # 想完整备份就备份整个 /data。
-      # ---- 首次建库时的"允许的源/目标根目录"缺省值 ----
-      # ⚠️ 这两个 env **只用于 DB 首次播种**（SQLite 里还没有这两条设置时）。DB 一旦存在，
-      #    改 env **不生效** —— 那时唯一正确的改法是在 WebUI「设置」页（或 PUT /api/settings）
-      #    里改「允许的源根目录 / 允许的目标根目录」。
-      # ⚠️ 因为容器路径 = 宿主路径（见文件头第 1/2 点），这里的值就是**宿主真实路径**。
-      #    旧 DB 里这两个值若仍是 `/downloads`、`/library`（容器内已不存在），
-      #    现象是容器 unhealthy（checks.downloads_readable / library_writable 为 false），
-      #    修法同上：到设置页改成 /vol1/1000/Download 与 /vol1/1000/Library。
-      # ⚠️ 源根的**缺省值是整个下载树** /vol1/1000/Download（不再只到 qbittorrent 子目录）：
-      #    单挂载形态下容器看到的就是宿主真实路径，放宽到整棵树才能给 Download 下任意子目录
-      #    建库（qBittorrent 换保存目录、或手工放进去的剧集都不必再改配置）。想收紧就在设置页改。
+      # 首次建库时"允许的源/目标根目录"的初值；只用于 DB 首次播种，
+      # 已部署实例请在 WebUI「设置」页修改（改环境变量不生效）。
       DEFAULT_SOURCE_ROOT: "${DEFAULT_SOURCE_ROOT:-/vol1/1000/Download}"
       DEFAULT_TARGET_ROOT: "${DEFAULT_TARGET_ROOT:-/vol1/1000/Library}"
-      # ⚠️ 容器内监听端口必须与下面 ports: 的**容器侧**目标完全一致，否则 healthcheck.sh
-      #    会去探测一个没人监听的端口 → 容器永远 unhealthy。因此这里和 ports 用同一个
-      #    ${PORT:-18081} 表达式：改 .env 里的 PORT 会同时移动两侧，保持一致。
+      # 容器内监听端口；必须与下面 ports 的容器侧一致，故两者用同一个表达式。
       PORT: "${PORT:-18081}"
-      # 容器路径 -> 宿主路径映射（JSON 字符串；键必须是以 / 开头的绝对容器路径）。
-      # 容器路径 = 宿主路径 ⇒ 本表是**恒等映射**，主要用于迁移到"非恒等"部署时
-      # 覆盖它（那种情况下应用会按最长前缀做双向换算）。
-      # ⚠️ 硬链接日志从零写在 /data/logs/hard_links.log，记的本来就是容器路径，
-      #    所以**不需要**任何"重新播种"，也不存在"不填就会全量重扫"的问题。
-      #    漏填的可见现象与自查方式见 .env.example 第 5 节。
+      # 容器路径 -> 宿主路径映射（JSON；容器路径 = 宿主路径时为恒等映射）。
       HOST_PATH_MAP: '${HOST_PATH_MAP:-{"/vol1/1000":"/vol1/1000"}}'
-      # ---- 媒体共同父挂载的**容器内路径**（与下面 volumes[0] 同一个表达式）----
-      # 传进容器只为让 entrypoint 做两条只读结构检查（见 docker/entrypoint.sh §0/§2）：
-      #   1) 必须是绝对路径、不能是 /、不能等于 DATA_DIR 的挂载；
-      #   2) DATA_DIR 与 MEDIA_ROOT **不在同一个挂载**里 —— 否则那条 `chown -R $DATA_DIR`
-      #      会递归进媒体挂载、改到媒体文件属主（硬链接共享 inode，会连带影响
-      #      qBittorrent 侧看到的属性）。命中就拒绝启动。
-      # 它**不**被应用代码读取（应用读的是 DB 设置里的"允许的源/目标根目录"）。
+      # 媒体共同父挂载的容器内路径（与 volumes 第一条同一个表达式）。
+      # entrypoint 用它做启动前结构检查（例如它与 DATA_DIR 不能在同一挂载里）。
       MEDIA_ROOT: "${MEDIA_ROOT:-/vol1/1000}"
-      # ---- 可选：会话签名密钥（留空 → 首次启动生成到 /data/secret.key，0600）----
+      # 可选：会话签名密钥（留空 → 首次启动生成到 /data/secret.key）。
       SECRET_KEY: "${SECRET_KEY:-}"
-      # ---- 可选：首次启动自动创建管理员（留空 → WebUI 引导创建）----
+      # 可选：首次启动自动创建管理员（都留空 → 首次打开 WebUI 时引导创建）。
       ADMIN_USERNAME: "${ADMIN_USERNAME:-}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
 
     ports:
-      # 宿主端口 : 容器端口，两侧都取 ${PORT:-18081} —— 这样"改端口"是一处改动、
-      # 两侧同步：entrypoint 打印的端口、uvicorn 实际绑定、healthcheck.sh 探测的端口、
-      # 宿主发布端口四者永远一致。
-      # 默认 18081；如与已有服务冲突，就在 .env 里改 PORT（宿主与容器两侧同步移动）。
-      # 若只想改**宿主**端口而让容器内保持 18081，请改成 "${PORT:-18081}:18081"
-      # 并同时把 environment.PORT 改回 18081，否则容器会绑到 PORT 上导致探测失败。
+      # 宿主端口 : 容器端口，两侧都取 ${PORT:-18081}，改端口只需改 .env 一处。
       - "${PORT:-18081}:${PORT:-18081}"
 
     volumes:
-      # ---- 1. 媒体：**单一共同父挂载**（硬链接可用的前提，见文件头第 1 点）----
-      # 容器内路径 = 宿主路径。源与目标都在这个挂载里 ⇒ `link()` 不会 EXDEV。
-      # ⚠️ 不要在这里再拆出 /downloads、/library 两条 bind；拆了就必然 EXDEV。
-      # ⚠️ 挂载点必须**已存在**于宿主：Docker 会对不存在的路径以 root 建目录
-      #    （那会制造一个空的 /vol1/1000 覆盖真实数据！），所以 MEDIA_ROOT 必须是真实存在的目录。
+      # 1. 媒体：**单一共同父挂载**（硬链接可用的前提）。容器内路径 = 宿主路径。
       - "${MEDIA_ROOT:-/vol1/1000}:${MEDIA_ROOT:-/vol1/1000}"
-      # ---- 2. 应用数据：可写持久化 ----
-      # 装 SQLite、任务日志、每库日志文件、secret.key，以及 **/data/config**
-      # （libraries.yaml + processors/*.yaml）。配置目录不需要单独挂载。
-      # 宿主目录可用 ${MLM_DATA_DIR} 覆盖（默认仍是下面的部署约定路径；目录需已存在，
-      # 或先 `mkdir -p <dir> && chown -R 1000:1001 <dir>` 再启动）。
+      # 2. 应用数据：可写持久化（SQLite、日志、secret.key、config）。宿主目录需已存在。
       - "${MLM_DATA_DIR:-/vol1/1000/Docker/media-ingest/data}:/data"
-      # ⚠️ 这里**只有两条** bind：媒体共同父挂载 + 数据卷。
-      #    不要把源与目标拆成两条 bind（拆开就必然 EXDEV，见文件头第 1 点）。
-      #    自查挂载形态是否已改对（两条 bind、且源与目标都在第一条里）：
-      #      docker inspect media-ingest --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} rw={{.RW}}{{"\n"}}{{end}}'
 
-    # ---- 健康检查：刻意**不在此处覆盖** ----
-    # 镜像 Dockerfile 里已有等价的一份，且是**真生效**的那份：
-    #     HEALTHCHECK --start-period=20s --interval=30s --timeout=10s --retries=3 \
-    #         CMD ["/bin/sh", "/usr/local/bin/mlm-healthcheck"]
-    # healthcheck.sh 读**容器内**的 $PORT（因此 .env 改 PORT 时健康检查自动跟随），
-    # 请求 /api/system/health 并**解析 body**：只有 `status == "ok"` 且 checks 全为 true
-    # 才 exit 0，否则把失败项逐条打到 stderr 并退出非 0。checks 共六项，**全部必需**
-    # （缺键也判 unhealthy；后端已落地，见 PROCESSORS.md §9）：
-    #   db / data_dir / downloads_readable / library_writable / processors / config
-    # 其中：
-    #   downloads_readable   = 设置里"允许的源根目录"可读（就是宿主真实路径）
-    #   library_writable     = 设置里"允许的目标根目录"可写
-    #   processors           三个内置处理器已加载
-    #   config               CONFIG_DIR 可写
-    # ⚠️ 该端点**无论健康与否都返回 HTTP 200**（degraded 也用 200 表达），
-    # 所以"只看状态码"的探针永远不会失败——别改回去。
-    # ⚠️ healthcheck.sh 全程只发 HTTP 请求，**不写任何文件**（更不碰媒体挂载）。
-    # 只用 Python 标准库 urllib + json，不装 curl（python:3.11-slim 里没有 curl/wget）。
-    #
-    # 为什么不在这里再写一份：compose 的 healthcheck 会**覆盖**镜像里那份。若在这里
-    # 写 CMD-SHELL，`$PORT` 需要写成 `$$PORT` 才是"延迟到容器内展开"；写错就变成
-    # compose 插值期展开（甚至空串），于是端口改了、探测还打旧端口 → 容器永远
-    # unhealthy。少一处重复 = 少一类 bug，所以只保留镜像内那一份。
-    #
-    # 需要临时调探针参数时，请覆写 healthcheck，且务必让端口取自容器内 $PORT
-    # （不是宿主端口），例如：
-    #     healthcheck:
-    #       test: ["CMD", "/bin/sh", "/usr/local/bin/mlm-healthcheck"]
-    #       interval: 15s
-    #       start_period: 10s
+    # 健康检查沿用镜像 Dockerfile 里那一条（真生效的是它，含六项 checks 的解析），
+    # 这里不重复声明以免端口/参数错位。临时调整探针参数时再覆写，见 DEPLOYMENT.md。
 
-    # ---- 日志轮转：避免长期运行把 NAS 撑爆 ----
+    # 日志轮转：避免长期运行把磁盘写满。
     logging:
       driver: json-file
       options:

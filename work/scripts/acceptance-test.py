@@ -11,9 +11,9 @@
 ``MLM_CONTAINER``    容器名（用于 docker exec 断言）             ``media-ingest-test``
 ``MLM_EXPECT_VERSION`` 期望 ``app.__version__``                   ``1.0.0``
 ``MLM_SRC``          测试源目录（qbittorrent 下载目录）          ``…/Download/qbittorrent/Bangumi``
-``MLM_TGT``          测试目标库（会被建链/改名）                 ``…/Library/Test2214``
+``MLM_TGT``          测试目标库（会被建链/改名）                 ``…/Library/TestLibrary``
 ``MLM_LIB_NAME``     库名                                        ``全量验收库``
-``MLM_LOG_FILE``     日志文件名                                  ``bangumi2214.log``
+``MLM_LOG_FILE``     日志文件名                                  ``bangumi.log``
 ``MLM_ADMIN_PW``     实例管理员口令（**必须**提供，无默认值）    ``—``
 ``MLM_QBT_URL/USER/PASS``  qBittorrent WebAPI（``PASS`` **必须**提供）  ``http://192.168.1.100:18080``
 ``MLM_OUT``          结果目录                                    ``/tmp/mlm-acceptance``
@@ -38,9 +38,9 @@ QBT_URL = _env("MLM_QBT_URL", "http://192.168.1.100:18080")
 QBT_USER = _env("MLM_QBT_USER", "admin")
 QBT_PASS = _env("MLM_QBT_PASS", "")  # 真实口令不进仓库：必须由调用方用环境变量提供
 SRC = _env("MLM_SRC", "/vol1/1000/Download/qbittorrent/Bangumi")
-TGT = _env("MLM_TGT", "/vol1/1000/Library/Test2214")
+TGT = _env("MLM_TGT", "/vol1/1000/Library/TestLibrary")
 LIB_NAME = _env("MLM_LIB_NAME", "全量验收库")
-LOG_FILE = _env("MLM_LOG_FILE", "bangumi2214.log")
+LOG_FILE = _env("MLM_LOG_FILE", "bangumi.log")
 ADMIN_PW = _env("MLM_ADMIN_PW", "")  # 同上
 CONTAINER = _env("MLM_CONTAINER", "media-ingest-test")
 EXPECT_VERSION = _env("MLM_EXPECT_VERSION", "1.0.0")

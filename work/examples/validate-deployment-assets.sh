@@ -929,5 +929,5 @@ printf '\n===== 汇总：%d PASS / %d FAIL =====\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 printf '静态自验全部通过。\n'
 printf '仍需部署验收（见 docs/guides/DEPLOYMENT.md）：镜像构建、容器 (healthy)、真实硬链接建立。\n'
-printf '实测参照（NAS 实机）：python:3.11-slim 预先存在时 build 约 2~5 分钟，\n'
+printf '参考值：python:3.11-slim 预先存在时 build 约 2~5 分钟，\n'
 printf '  镜像 media-ingest:latest 约 180 MB（本脚本只做静态自验，不构建）。\n'
