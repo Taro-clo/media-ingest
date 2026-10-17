@@ -7,17 +7,19 @@
 
 **分发**：源码在 GitHub Release；预构建镜像在 GHCR —— `ghcr.io/taro-clo/media-ingest:1.0.0`
 （`linux/amd64` + `linux/arm64`，由 GitHub Actions 从同一源码构建，因此镜像 ID 与下文本机构建的
-`0ec5d23658ce` 不同属正常）。镜像部署方式见 `README.md`「快速开始（镜像部署，推荐）」与
+`0ec5d23658ce` 不同属正常）。镜像部署方式见 `README.md`「快速开始（镜像部署）」与
 `docs/guides/DEPLOYMENT.md` §4.6。
 
 本版包含两处行为改动（出厂默认特典判据新增 `CM集`、`permission_mode` 契约修订），
 以及完整发版实测结果，见下文。
 
-### 部署：一条命令启动、默认零配置（`linux/amd64` / `linux/arm64` 均可）
+### 部署：预构建镜像手动安装、默认零配置（`linux/amd64` / `linux/arm64` 均可）
 
-- **`deploy.sh`**（仓库根）：自动探测媒体父目录（`/vol1/1000`、`/volume1`、`/mnt/user`、`/srv/media` 等候选，
-  也可显式传路径）→ 派生源/目标根 → 写同目录 `.env` → 下载 release compose → `docker compose up -d` →
-  等到 `(healthy)` 并打印访问地址。用户侧只有一条命令。
+- **镜像部署改成手动三步**：① 创建容器数据目录（`mkdir -p`，路径自选）→ ② 下载
+  `work/docker-compose.release.yml`（或从 README 复制内容自行创建）→ ③ 在 compose 同目录的 `.env` 里
+  按需设置挂载目录（`MEDIA_ROOT` 必改；`MLM_DATA_DIR`、`PORT` 可选），然后
+  `docker compose -f docker-compose.release.yml up -d`。compose 与文档用 ✏️ 标出要改的位置；
+  **不再提供一键安装脚本**。
 - **运行身份默认 `auto`**：`docker/entrypoint.sh` 按 `MEDIA_ROOT`（其次数据目录）的属主自动识别 `PUID`/`PGID`，
   不必先去宿主 `id`；显式传数字时行为不变，识别失败回退 `1000:1001` 并打 WARN。`docker/Dockerfile` 的默认 ENV
   同步改为 `auto`（`docker run` 直接跑也能自适应）。
@@ -25,8 +27,8 @@
   `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仍只用于首次建库播种）；`HOST_PATH_MAP` 默认 `{}`（恒等）。
 - **数据卷默认 `./data`**（compose 文件同目录），不再写死 `/vol1/1000/Docker/media-ingest/data`，换机器/换根目录不用改配置。
 - 以上只影响部署资产（`docker-compose.yml`、`docker-compose.release.yml`、`.env.example`、`docker/entrypoint.sh`、
-  `docker/Dockerfile`、`deploy.sh` 与文档/校验脚本），**运行时代码、API、数据库结构与媒体处理结果均不变**。
-  `examples/validate-deployment-assets.sh` 相应增加 release compose 与 `deploy.sh` 的静态断言。
+  `docker/Dockerfile` 与文档/校验脚本），**运行时代码、API、数据库结构与媒体处理结果均不变**。
+  `examples/validate-deployment-assets.sh` 相应增加 release compose 的静态断言，并反向断言不再引用一键脚本。
 
 ### 变更：出厂默认特典判据（L3）新增第 7 条 `CM集`
 

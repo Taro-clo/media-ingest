@@ -1,21 +1,28 @@
 # =============================================================================
-# media-ingest —— docker-compose.release.yml（镜像部署，推荐）
+# media-ingest —— docker-compose.release.yml（镜像部署）
 # =============================================================================
-# 用预构建镜像直接跑：不需要源码、不需要本地构建、不需要改 .env。
-# 一条命令（在放本文件的目录里执行）：
-#     docker compose -f docker-compose.release.yml up -d
-# 之后 `docker compose -f docker-compose.release.yml ps` 出现 (healthy) 即成功；
-# 浏览器打开 http://<本机 IP>:18081 建管理员、建媒体库。
+# 用预构建镜像直接跑：不需要源码、不需要本地构建。安装分三步（详见 docs/guides/DEPLOYMENT.md §4.6）：
 #
-# 唯一需要按环境确认的是 **MEDIA_ROOT**（下载目录与媒体库的共同父目录）。
+#   1. 创建容器数据目录（SQLite、日志、secret.key、config 都写这里；路径随意，按自己的环境建）：
+#        mkdir -p /你的/路径/media-ingest-data
+#
+#   2. 保存本文件（也可以从仓库 README 复制内容自行创建）：
+#        https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
+#
+#   3. 按需改下面的挂载目录（见 ✏️ 标记），然后启动：
+#        docker compose -f docker-compose.release.yml up -d
+#      `docker compose -f docker-compose.release.yml ps` 出现 (healthy) 即成功；
+#      浏览器打开 http://<本机 IP>:18081 建管理员、建媒体库。
+#
+# 挂载目录怎么改：本文件的路径全部引用同一个变量，**只改一处即可** ——
+# 在**本文件同目录**建一个 `.env`（compose 自动读取，仅用于 ${VAR} 插值）：
+#     MEDIA_ROOT=/你的/下载目录与媒体库的共同父目录    # 必改
+#     MLM_DATA_DIR=/你的/路径/media-ingest-data       # 可选；默认是本文件同目录的 ./data
+#     PORT=18081                                      # 可选
+# 也可以直接改下面 environment/volumes 里的默认值（那样三处要一起改，否则路径不一致）。
+#
 # 其它都有自适应默认值：PUID/PGID=auto（取媒体挂载属主）、数据卷=./data、
 # 首次建库的源/目标根=<MEDIA_ROOT>/Download 与 <MEDIA_ROOT>/Library。
-# 用仓库根的 deploy.sh 可自动探测并直接起容器：sh deploy.sh [MEDIA_ROOT]
-#
-# 想按自己的环境调整，任选一种：
-#   a) 直接改下面 environment / volumes 里的默认值；
-#   b) 在同目录放 .env（compose 会自动读取），或用环境变量临时覆盖，例如：
-#        MEDIA_ROOT=/mnt/media docker compose -f docker-compose.release.yml up -d
 #
 # 部署前必读：**下载目录与媒体库必须落在同一个挂载里**（硬链接不能跨挂载）。
 # 所以这里只挂一条"共同父目录"，且容器内路径 = 宿主路径：
@@ -59,7 +66,7 @@ services:
       DEFAULT_TARGET_ROOT: "${DEFAULT_TARGET_ROOT:-${MEDIA_ROOT:-/vol1/1000}/Library}"
       # 容器内监听端口；必须与下面 ports 的容器侧一致，故两者用同一个表达式。
       PORT: "${PORT:-18081}"
-      # 媒体共同父挂载的容器内路径（与 volumes 第一条同一个表达式）。
+      # ✏️ 挂载目录（媒体共同父目录；容器内路径 = 宿主路径）。改法见文件头，只改一处即可。
       MEDIA_ROOT: "${MEDIA_ROOT:-/vol1/1000}"
       # 可选：会话签名密钥（留空 → 首次启动生成到 /data/secret.key）。
       SECRET_KEY: "${SECRET_KEY:-}"
@@ -75,11 +82,12 @@ services:
       - "${PORT:-18081}:${PORT:-18081}"
 
     volumes:
-      # 1. 媒体：**单一共同父挂载**（硬链接可用的前提）。容器内路径 = 宿主路径。
+      # ✏️ 1. 媒体：**单一共同父挂载**（硬链接可用的前提）。容器内路径 = 宿主路径。
+      #    改法见文件头（在 .env 里设 MEDIA_ROOT，只改一处）。
       - "${MEDIA_ROOT:-/vol1/1000}:${MEDIA_ROOT:-/vol1/1000}"
-      # 2. 应用数据：可写持久化（SQLite、日志、secret.key、config）。
+      # ✏️ 2. 应用数据：可写持久化（SQLite、日志、secret.key、config）。
       #    默认放 compose 文件同目录的 ./data（任意环境都可写，不污染根目录）；
-      #    想集中管理就设 MLM_DATA_DIR=/绝对路径。
+      #    想用第 1 步建好的目录就设 MLM_DATA_DIR=/绝对路径。
       - "${MLM_DATA_DIR:-./data}:/data"
 
     # 健康检查沿用镜像 Dockerfile 里那一条（六项 checks 的解析也在镜像里）。

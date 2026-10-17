@@ -240,7 +240,7 @@ du -sh <下载根>/<作品> <媒体库根>/<作品>                          # �
 ## 4. 安装步骤（从零到页面可访问）
 
 > **两种装法，先选一种：**
-> 1. **一条命令（推荐，无需源码、无需本机构建）** → §4.6。脚本自动探测媒体目录、写配置、拉镜像并等到健康。
+> 1. **预构建镜像**（推荐，无需源码、无需本机构建） → §4.6：建数据目录 → 下载 compose → 按需改挂载目录 → `up -d`。
 > 2. **从源码构建**（要改代码、或访问不了镜像仓库时） → §4.1–4.5。
 
 ### 4.0 约定值
@@ -363,53 +363,64 @@ media-ingest  media-ingest:latest  "/usr/local/bin/…"  Up 45 seconds (healthy)
 ### 4.6 用预构建镜像安装（不构建，推荐）
 
 镜像由 GitHub Actions 构建，多架构（`linux/amd64`、`linux/arm64`，按宿主架构自动选择），推送到 GHCR：
-`ghcr.io/taro-clo/media-ingest:<版本>`。**不需要源码、不需要本机 Docker 构建、不需要写 `.env`。**
+`ghcr.io/taro-clo/media-ingest:<版本>`。**不需要源码、不需要本机 Docker 构建。**
 
-**【NAS 宿主】一条命令：**
+全程三步，只需要你自己决定两件事：**数据目录放哪**、**下载目录与媒体库的共同父目录是什么**。
+
+**① 创建容器数据存储目录**（SQLite、日志、`secret.key`、`config` 都写在这里；路径随意，下面示例换成你自己的）：
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/deploy.sh
-sh deploy.sh                      # 自动探测媒体根目录
-sh deploy.sh /mnt/media           # 探测不准时显式指定媒体根目录（下载目录与媒体库的共同父目录）
+mkdir -p <数据卷>
 ```
 
-脚本做的事（每一步都幂等，可重复执行）：
+> 这个目录只要求**可写且持久化**，不要求与媒体同一文件系统；下文用 `MLM_DATA_DIR` 指向它。
 
-1. 探测 `MEDIA_ROOT`：依次看 `/vol1/1000`、`/volume1`、`/volume1/media`、`/mnt/user`、`/mnt/media`、`/srv/media`、
-   `/data/media`、`$HOME/media`、`$HOME`，取第一个含 `Download/`（或 `downloads/`、`qbittorrent/`）与
-   `Library/`（或 `library/`、`媒体库/`）的目录；探测结果不合适就直接作为参数传进去（如上）。
-2. 派生 `DEFAULT_SOURCE_ROOT` / `DEFAULT_TARGET_ROOT`（`<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`，
-   找不到同名子目录时取实际存在的那个）。
-3. 写同目录 `.env`（只在文件不存在或内容变化时写）、下载 `docker-compose.release.yml`（本地已有则不覆盖）。
-4. `docker compose up -d`，最多等 180 秒到 `(healthy)`，然后打印访问地址、health 地址、数据目录。
-5. 源与目标 `stat -c %d` 不同时**提前警告**（跨挂载硬链接必然 `EXDEV`）。
-
-可覆盖的环境变量：`MEDIA_ROOT`、`PORT`、`MLM_DATA_DIR`、`DEFAULT_SOURCE_ROOT`、`DEFAULT_TARGET_ROOT`、
-`MLM_VERSION`、`MLM_REF`（默认 `v1.0.0`，脚本下载 compose 用）、`MLM_NO_WAIT=1`（不等健康）。
-
-**手工等价步骤**（不想用脚本时；只有 `MEDIA_ROOT` 需要你给值）：
+**② 下载 docker-compose（或从 README 复制内容自行创建）**：
 
 ```bash
 mkdir -p <项目目录> && cd <项目目录>
 curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
-MEDIA_ROOT=/vol1/1000 docker compose -f docker-compose.release.yml pull
-MEDIA_ROOT=/vol1/1000 docker compose -f docker-compose.release.yml up -d
-docker compose -f docker-compose.release.yml ps        # 出现 (healthy) 即成功
 ```
+
+> 根 [`README.md`](../../../README.md) 的「快速开始（镜像部署）」里有一份可折叠的完整内容，与仓库文件一致。
+> 文件名保持 `docker-compose.release.yml` 即可；也可以改名成默认的 `docker-compose.yml`，之后命令里的 `-f …` 相应去掉。
+
+**③ 按需设置挂载目录**（只需改一处）：在 compose 同目录建 `.env`（compose 会自动读取，仅用于 `${VAR}` 插值）：
+
+```bash
+cat > .env <<'EOF'
+# 必改：下载目录与媒体库的共同父目录（宿主上必须已存在，下载/媒体库都在它下面）
+MEDIA_ROOT=<媒体共同父目录>
+# 可选：用第 ① 步创建的目录（不写 = 本文件同目录的 ./data）
+MLM_DATA_DIR=<数据卷>
+# 可选：18081 被占用时改（宿主与容器端口同步跟随）
+# PORT=18099
+EOF
+
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+docker compose -f docker-compose.release.yml ps        # STATUS 出现 (healthy) 即成功
+```
+
+> 不用 `.env` 也行：直接改 compose 里的默认值（`${MEDIA_ROOT:-/vol1/1000}` 等），或命令行前缀环境变量
+> （`MEDIA_ROOT=/mnt/media docker compose -f docker-compose.release.yml up -d`）。
+> ⚠️ 同一个变量在 compose 里出现**多处**（`environment.MEDIA_ROOT` 与 `volumes` 的宿主/容器两侧）：
+> 用 `.env`/环境变量改一次就全部同步；**直接改文件则这几处要一起改**，否则容器内外路径不一致。
 
 **默认值（都不用手配）**：
 
 | 项 | 默认 | 想改时 |
 |---|---|---|
 | 镜像版本 | `1.0.0` | `MLM_VERSION=latest` 或具体版本号 |
-| 数据卷（宿主） | compose 文件同目录的 `./data` | `MLM_DATA_DIR=/你的路径/data` |
+| 媒体共同父目录 | `/vol1/1000` | `.env` 里 `MEDIA_ROOT=/你的/路径`（只改一处） |
+| 数据卷（宿主） | compose 文件同目录的 `./data` | `MLM_DATA_DIR=/你的/路径/data` |
 | 运行身份 | `PUID=auto` / `PGID=auto`：按 `MEDIA_ROOT` 属主自动识别（识别失败回退 `1000:1001` 并在日志 WARN） | 想固定就写数字 `PUID=1000 PGID=1000` |
 | 源 / 目标根 | `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仅首次建库时播种） | `DEFAULT_SOURCE_ROOT=… DEFAULT_TARGET_ROOT=…` |
 | 端口 | `18081` | `PORT=18099`（宿主与容器同步移动） |
 | `HOST_PATH_MAP` | 空 = 恒等（容器路径就是宿主路径） | 只在容器内路径 ≠ 宿主路径时才需要 |
 
 - `MEDIA_ROOT` 必须是宿主上真实存在的目录；**下载目录与媒体库在同一个挂载里**这条不变量不变（§2、§3）。
-- 覆盖方式二选一：同目录放 `.env`（写法同 `.env.example`），或命令行前缀环境变量（如上）。
+- 数据卷默认建在 compose 同目录的 `./data`；想用 ① 创建的目录就设 `MLM_DATA_DIR`（或直接改 volumes 第 2 条）。
 - 后续验证、创建管理员、接 qBittorrent 与源码构建完全相同：§4.4 → §4.5 → §5。
 
 > GHCR 在国内部分网络下可能较慢或不可达；这种情况用源码构建（§4.3），或先在有网络的地方

@@ -45,33 +45,160 @@
 | 权限 | 容器内以非 root 用户运行；`PUID`/`PGID` 默认 `auto`，按媒体目录属主自动识别，一般不用配 |
 | 可选 | qBittorrent（自动触发）；Emby / Jellyfin（消费媒体库） |
 
-## 快速开始（镜像部署，推荐）
+## 快速开始（镜像部署）
 
-不需要克隆源码、不需要本机构建、不需要写配置文件。**一条命令**（脚本自动探测媒体目录、拉镜像、等到健康）：
+不需要克隆源码、不需要本机构建。三步走（下面的示例路径都换成你自己的）：
+
+**1. 创建容器数据存储目录**（`mlm.db`、日志、`secret.key`、`config` 都写在这里；位置随意，示例仅供参考）：
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/deploy.sh
-sh deploy.sh                  # 自动探测媒体根目录；探测不准就显式指定，如 sh deploy.sh /mnt/media
+mkdir -p /你的/路径/media-ingest-data
 ```
 
-脚本会打印访问地址。参数是**下载目录与媒体库的共同父目录**，例如 `/vol1/1000`（群晖常是 `/volume1`，TrueNAS `/mnt/...`）。
-它自己会：探测 `MEDIA_ROOT` → 派生源/目标根 → 拉取镜像 → 启动 → 等到 `(healthy)`。
-
-不想用脚本也可以，手工等价步骤（只有 `MEDIA_ROOT` 要你给值）：
+**2. 下载 docker-compose**（或者把下面折叠的内容复制成 `docker-compose.release.yml`）：
 
 ```bash
-mkdir -p /vol1/1000/Docker/media-ingest && cd /vol1/1000/Docker/media-ingest
+mkdir -p /你的/路径/media-ingest && cd /你的/路径/media-ingest
 curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
-MEDIA_ROOT=/vol1/1000 docker compose -f docker-compose.release.yml up -d
+```
+
+<details>
+<summary>或者从 README 复制完整内容自行创建（点开）</summary>
+
+```yaml
+# =============================================================================
+# media-ingest —— docker-compose.release.yml（镜像部署）
+# =============================================================================
+# 用预构建镜像直接跑：不需要源码、不需要本地构建。安装分三步（详见 docs/guides/DEPLOYMENT.md §4.6）：
+#
+#   1. 创建容器数据目录（SQLite、日志、secret.key、config 都写这里；路径随意，按自己的环境建）：
+#        mkdir -p /你的/路径/media-ingest-data
+#
+#   2. 保存本文件（也可以从仓库 README 复制内容自行创建）：
+#        https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
+#
+#   3. 按需改下面的挂载目录（见 ✏️ 标记），然后启动：
+#        docker compose -f docker-compose.release.yml up -d
+#      `docker compose -f docker-compose.release.yml ps` 出现 (healthy) 即成功；
+#      浏览器打开 http://<本机 IP>:18081 建管理员、建媒体库。
+#
+# 挂载目录怎么改：本文件的路径全部引用同一个变量，**只改一处即可** ——
+# 在**本文件同目录**建一个 `.env`（compose 自动读取，仅用于 ${VAR} 插值）：
+#     MEDIA_ROOT=/你的/下载目录与媒体库的共同父目录    # 必改
+#     MLM_DATA_DIR=/你的/路径/media-ingest-data       # 可选；默认是本文件同目录的 ./data
+#     PORT=18081                                      # 可选
+# 也可以直接改下面 environment/volumes 里的默认值（那样三处要一起改，否则路径不一致）。
+#
+# 其它都有自适应默认值：PUID/PGID=auto（取媒体挂载属主）、数据卷=./data、
+# 首次建库的源/目标根=<MEDIA_ROOT>/Download 与 <MEDIA_ROOT>/Library。
+#
+# 部署前必读：**下载目录与媒体库必须落在同一个挂载里**（硬链接不能跨挂载）。
+# 所以这里只挂一条"共同父目录"，且容器内路径 = 宿主路径：
+#     - ${MEDIA_ROOT:-/vol1/1000}:${MEDIA_ROOT:-/vol1/1000}
+# ⚠️ 不要拆成 /downloads、/library 两条 bind：那样硬链接必然失败（EXDEV）。
+# ⚠️ MEDIA_ROOT 必须是宿主上**真实存在**的目录，否则 Docker 会以 root 新建空目录。
+# ⚠️ 数据卷（MLM_DATA_DIR）只要求可写，不要求和媒体同一文件系统。
+#
+# 版本：默认钉住 1.0.0；要跟随最新发布设 MLM_VERSION=latest。
+# 镜像在 GHCR（GitHub Container Registry），多架构（linux/amd64、linux/arm64）：
+#     ghcr.io/taro-clo/media-ingest:1.0.0
+# =============================================================================
+
+name: media-ingest
+
+services:
+  media-ingest:
+    image: "ghcr.io/taro-clo/media-ingest:${MLM_VERSION:-1.0.0}"
+    container_name: media-ingest
+
+    # 单进程运行：硬链接日志是"读-改-写整份"，多 worker 会互相覆盖。
+    restart: unless-stopped
+
+    environment:
+      # 运行身份：默认 auto = 按媒体共同父挂载的属主自动识别（能读下载、能写媒体库的
+      # 那个用户），不需要去宿主执行 id。要固定就显式写数字，例如 PUID=1000 PGID=1000。
+      PUID: "${PUID:-auto}"
+      PGID: "${PGID:-auto}"
+      # 时区与字符集（写中文日志依赖 UTF-8 locale，不要改成 C/POSIX）。
+      TZ: "${TZ:-Asia/Shanghai}"
+      LANG: "C.UTF-8"
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+      # 数据目录（容器内）：SQLite、任务日志、库日志、secret.key、config。
+      DATA_DIR: "/data"
+      CONFIG_DIR: "/data/config"
+      # 首次建库时"允许的源/目标根目录"的初值：默认跟随 MEDIA_ROOT 派生
+      # （<MEDIA_ROOT>/Download 与 <MEDIA_ROOT>/Library），换根目录不用另填。
+      # 只用于 DB 首次播种，已部署实例请在 WebUI「设置」页修改（改环境变量不生效）。
+      DEFAULT_SOURCE_ROOT: "${DEFAULT_SOURCE_ROOT:-${MEDIA_ROOT:-/vol1/1000}/Download}"
+      DEFAULT_TARGET_ROOT: "${DEFAULT_TARGET_ROOT:-${MEDIA_ROOT:-/vol1/1000}/Library}"
+      # 容器内监听端口；必须与下面 ports 的容器侧一致，故两者用同一个表达式。
+      PORT: "${PORT:-18081}"
+      # ✏️ 挂载目录（媒体共同父目录；容器内路径 = 宿主路径）。改法见文件头，只改一处即可。
+      MEDIA_ROOT: "${MEDIA_ROOT:-/vol1/1000}"
+      # 可选：会话签名密钥（留空 → 首次启动生成到 /data/secret.key）。
+      SECRET_KEY: "${SECRET_KEY:-}"
+      # 可选：首次启动自动创建管理员（都留空 → 首次打开 WebUI 时引导创建）。
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+      # HOST_PATH_MAP 故意不设：单挂载形态下容器路径 = 宿主路径，
+      # 空映射（应用默认）就是恒等换算。只有旧式 /downloads + /library 双 bind
+      # 部署才需要显式给 JSON 映射。
+
+    ports:
+      # 宿主端口 : 容器端口，两侧都取 ${PORT:-18081}，改端口只需改一处。
+      - "${PORT:-18081}:${PORT:-18081}"
+
+    volumes:
+      # ✏️ 1. 媒体：**单一共同父挂载**（硬链接可用的前提）。容器内路径 = 宿主路径。
+      #    改法见文件头（在 .env 里设 MEDIA_ROOT，只改一处）。
+      - "${MEDIA_ROOT:-/vol1/1000}:${MEDIA_ROOT:-/vol1/1000}"
+      # ✏️ 2. 应用数据：可写持久化（SQLite、日志、secret.key、config）。
+      #    默认放 compose 文件同目录的 ./data（任意环境都可写，不污染根目录）；
+      #    想用第 1 步建好的目录就设 MLM_DATA_DIR=/绝对路径。
+      - "${MLM_DATA_DIR:-./data}:/data"
+
+    # 健康检查沿用镜像 Dockerfile 里那一条（六项 checks 的解析也在镜像里）。
+
+    # 日志轮转：避免长期运行把磁盘写满。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+</details>
+
+> 折叠里的内容与仓库文件 `work/docker-compose.release.yml` 一致，以仓库文件为准。
+
+**3. 按需设置挂载目录**（只改一处）：在 compose 同目录建 `.env`（compose 会自动读取，只用于插值）：
+
+```bash
+cat > .env <<'EOF'
+# 必改：下载目录与媒体库的共同父目录（宿主上必须已存在，下载/媒体库都在它下面）
+MEDIA_ROOT=/你的/下载目录与媒体库的共同父目录
+# 可选：用第 1 步创建的目录（不写 = 本目录下的 ./data）
+MLM_DATA_DIR=/你的/路径/media-ingest-data
+# 可选：18081 被占用时改（宿主与容器端口同步跟随）
+# PORT=18099
+EOF
+```
+
+也可以直接改 compose 里对应的默认值（`${MEDIA_ROOT:-…}`、`${MLM_DATA_DIR:-…}`），改的话同一变量涉及的几处要一起改。然后启动：
+
+```bash
+docker compose -f docker-compose.release.yml up -d
 docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) 即成功
 ```
 
-默认值（都不用配，要改就用同目录 `.env` 或环境变量覆盖）：
+默认值（不建 `.env` 也能跑，但媒体目录会按 `/vol1/1000` 找）：
 
-| 项 | 默认 | 覆盖示例 |
+| 项 | 默认 | 覆盖方式（`.env` 或 compose 默认值） |
 |---|---|---|
 | 镜像版本 | `1.0.0` | `MLM_VERSION=latest` |
-| 数据目录（`/data`） | compose 同目录的 `./data` | `MLM_DATA_DIR=/你的路径/data` |
+| 媒体共同父目录 | `/vol1/1000` | `MEDIA_ROOT=/你的/路径` |
+| 数据目录（`/data`） | compose 同目录的 `./data` | `MLM_DATA_DIR=/你的/路径/data` |
 | 运行身份 | `auto`（按媒体目录属主识别） | `PUID=1000 PGID=1000` |
 | 源 / 目标根 | `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仅首次建库播种） | `DEFAULT_SOURCE_ROOT=…` |
 | 端口 | `18081` | `PORT=18099` |

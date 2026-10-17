@@ -79,7 +79,6 @@ ko()   { FAIL=$((FAIL + 1)); printf '  [FAIL] %s\n' "$*"; }
 
 cp "$REPO/docker-compose.yml" "$WORK/"
 [ -f "$REPO/docker-compose.release.yml" ] && cp "$REPO/docker-compose.release.yml" "$WORK/"
-[ -f "$REPO/../deploy.sh" ] && cp "$REPO/../deploy.sh" "$WORK/"
 [ -f "$REPO/.env.example" ] && cp "$REPO/.env.example" "$WORK/"
 cp "$REPO/docker/entrypoint.sh" "$REPO/docker/healthcheck.sh" "$WORK/"
 cp "$REPO/docker/Dockerfile" "$WORK/"
@@ -92,20 +91,20 @@ cp "$REPO/docker/Dockerfile" "$WORK/"
 cd "$WORK"
 
 note "1. POSIX sh 语法（dash）"
-for f in entrypoint.sh healthcheck.sh minimal-repro.sh deploy.sh; do
+for f in entrypoint.sh healthcheck.sh minimal-repro.sh; do
     [ -f "$f" ] || continue
     if sh -n "$f" 2>"$WORK/.err"; then ok "$f"; else ko "$f: $(cat "$WORK/.err")"; fi
 done
 
 note "2. bash 语法"
-for f in entrypoint.sh healthcheck.sh minimal-repro.sh deploy.sh; do
+for f in entrypoint.sh healthcheck.sh minimal-repro.sh; do
     [ -f "$f" ] || continue
     if bash -n "$f" 2>"$WORK/.err"; then ok "$f"; else ko "$f: $(cat "$WORK/.err")"; fi
 done
 
 note "3. 是否残留 CR（Windows 编辑器引入的行尾 \\r 会让 /bin/sh 解析失败）"
 cr_files=""
-for f in entrypoint.sh healthcheck.sh minimal-repro.sh deploy.sh docker-compose.yml docker-compose.release.yml .env.example; do
+for f in entrypoint.sh healthcheck.sh minimal-repro.sh docker-compose.yml docker-compose.release.yml .env.example; do
     [ -f "$f" ] || continue
     if LC_ALL=C grep -q "$(printf '\r')" "$f" 2>/dev/null; then cr_files="$cr_files $f"; fi
 done
@@ -118,7 +117,6 @@ fi
 note "4. shellcheck（可选）"
 if command -v shellcheck >/dev/null 2>&1; then
     sc_targets="entrypoint.sh healthcheck.sh"
-    [ -f deploy.sh ] && sc_targets="$sc_targets deploy.sh"
     # shellcheck disable=SC2086  # 目标列表按空白拆开是有意的
     if shellcheck -s sh -S warning $sc_targets; then ok "shellcheck 无 warning 级问题"; else ko "shellcheck 报出问题（见上）"; fi
 else
@@ -551,21 +549,16 @@ PYEOF
         ko "docker-compose.release.yml 渲染失败：$(cat err-rel.txt)"
     fi
 
-    note "6c. deploy.sh（一键部署脚本：语法/关键行为静态检查）"
-    if [ ! -f deploy.sh ]; then
-        printf '  [SKIP] 无 deploy.sh\n'
+    note "6c. 一键安装脚本已取消（回归护栏：安装方式 = 手动三步）"
+    onecmd_hits=""
+    for f in docker-compose.release.yml "$REPO/../README.md" "$REPO/docs/guides/DEPLOYMENT.md"; do
+        [ -f "$f" ] || continue
+        if LC_ALL=C grep -q 'deploy\.sh' "$f"; then onecmd_hits="$onecmd_hits $f"; fi
+    done
+    if [ -n "$onecmd_hits" ]; then
+        ko "以下文件又引用了已取消的一键脚本 deploy.sh：$onecmd_hits"
     else
-        if grep -q 'MEDIA_ROOT' deploy.sh && grep -q 'MLM_VERSION' deploy.sh \
-           && grep -q 'docker compose' deploy.sh; then
-            ok "deploy.sh 引用 MEDIA_ROOT / MLM_VERSION / docker compose"
-        else
-            ko "deploy.sh 缺少关键变量或 compose 调用"
-        fi
-        if grep -q 'PUID=auto\|PUID.*auto' deploy.sh || ! grep -q 'PUID=' deploy.sh; then
-            ok "deploy.sh 不强制用户填写 PUID/PGID（交给容器 auto 识别）"
-        else
-            ko "deploy.sh 又要求用户手填 PUID（应交给容器 auto 识别）"
-        fi
+        ok "发布 compose 与安装文档不再引用一键脚本（用户侧是手动三步）"
     fi
 
 
