@@ -18,6 +18,7 @@ import contextlib
 import importlib
 import importlib.util
 import inspect
+import io
 import os
 import re
 import shutil
@@ -308,6 +309,47 @@ class _FixtureError(Exception):
     pass
 
 
+class _CaptureResult:
+    """``capsys.readouterr()`` 的返回值：``.out`` / ``.err`` 两个字符串。"""
+
+    def __init__(self, out: str, err: str) -> None:
+        self.out = out
+        self.err = err
+
+
+class CapsysCapture:
+    """``capsys`` 夹具的兜底实现：把进程级 stdout/stderr 重定向到内存缓冲。
+
+    语义按本测试集用到的程度对齐 pytest：``readouterr()`` 返回自上次读取以来
+    的输出并清空缓冲；``close()`` 由夹具 teardown 调用，恢复原 stdout/stderr。
+    """
+
+    def __init__(self) -> None:
+        self._out = io.StringIO()
+        self._err = io.StringIO()
+        self._redirects: list = []
+
+    def start(self) -> None:
+        self._redirects = [
+            contextlib.redirect_stdout(self._out),
+            contextlib.redirect_stderr(self._err),
+        ]
+        for redirect in self._redirects:
+            redirect.__enter__()
+
+    def readouterr(self) -> _CaptureResult:
+        result = _CaptureResult(self._out.getvalue(), self._err.getvalue())
+        for buffer in (self._out, self._err):
+            buffer.seek(0)
+            buffer.truncate()
+        return result
+
+    def close(self) -> None:
+        for redirect in reversed(self._redirects):
+            redirect.__exit__(None, None, None)
+        self._redirects = []
+
+
 class _Case:
     def __init__(self, module_name: str, func, params: dict, case_id: str) -> None:
         self.module_name = module_name
@@ -489,6 +531,12 @@ class MiniRunner:
             return ctx.monkeypatch
         if name == "tmp_path_factory":
             raise _FixtureError("本兜底运行器未实现 tmp_path_factory")
+        if name == "capsys":
+            capture = CapsysCapture()
+            capture.start()
+            ctx.teardowns.append(capture.close)
+            ctx.fixtures[name] = capture
+            return capture
 
         meta = registry.get(name)
         if meta is None:

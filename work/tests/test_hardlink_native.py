@@ -398,3 +398,24 @@ def test_last_failures_reports_the_full_target_path_for_dashed_folders(
     fresh_target = str(tmp_path / "t2")
     _run_direct(native, str(source_dir), fresh_target, log_file)
     assert native.last_failures() == [], "每次 create_hard_links 开头都要清空留痕"
+
+
+def test_reset_last_failures_clears_the_structured_trace(
+    build_tree, source_dir, target_dir, log_dir
+):
+    """``reset_last_failures()`` 供适配层在每次运行前显式清空结构化留痕。
+
+    适配层不能指望被驱动的实现自己清（替身/注入方未必清），否则上一次运行的失败项
+    会混进本次 ``LinkOutcome.failed``（``tests/test_rule_validation.py`` 的 a9 钉的就是这个）。
+    """
+    from app.processors import hardlink as native
+
+    log_file = str(log_dir / "hard_links.log")
+    build_tree(source_dir, {"Show A/ep01.mkv": 10})
+    # 目标侧先放一份同名普通文件（不同 inode）⇒ 本次运行必留一条 ``File exists`` 失败项。
+    build_tree(target_dir, {"Show A/ep01.mkv": 10})
+    _run_direct(native, str(source_dir), str(target_dir), log_file)
+    assert native.last_failures(), "目标已存在且不是硬链接，应该有失败项"
+
+    native.reset_last_failures()
+    assert native.last_failures() == []

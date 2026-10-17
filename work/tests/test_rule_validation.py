@@ -652,6 +652,9 @@ def test_a9_copied_files_are_detected_and_reported_as_failures(
     build_tree(source_dir, {"Show A/ep01.mkv": 10})
     original = module.create_hard_links
     module.create_hard_links = fake_copy
+    # 上一次运行留下的结构化留痕不得混进本次结果：真实实现在开头会清空，
+    # 替身不会 —— 适配层必须在调用前显式清（否则这里会读到下面这条 stale）。
+    module._FAILURES.append(("stale-from-previous-run", "File exists"))
     try:
         outcome = adapter.run_hardlinks(
             source_dir=str(source_dir),

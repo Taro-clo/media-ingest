@@ -36,6 +36,7 @@ __all__ = [
     "LOG_FORMAT",
     "create_hard_links",
     "last_failures",
+    "reset_last_failures",
     "last_permission_stats",
     "read_logged_folders",
 ]
@@ -74,6 +75,16 @@ _FAILURES: list[tuple[str, str]] = []
 def last_failures() -> list[tuple[str, str]]:
     """返回最近一次 ``create_hard_links()`` 里失败项的 ``(目标路径, 异常文本)`` 副本。"""
     return list(_FAILURES)
+
+
+def reset_last_failures() -> None:
+    """清空结构化失败留痕。
+
+    调用方（``script_adapter.run_hardlinks``）在**每次调用前**显式用它，
+    让 ``last_failures()`` 只反映本次运行：驱动实现可能被替换（测试替身、
+    ``runtime_module()`` 的其它注入方），不能指望被驱动的那个函数自己会清。
+    """
+    _FAILURES.clear()
 
 
 # --------------------------------------------------------------------- permission_mode

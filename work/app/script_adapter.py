@@ -587,6 +587,16 @@ def run_hardlinks(
                 if os.path.exists(os.path.join(source_dir, name))
             }
 
+        # 显式清空结构化失败留痕：``outcome.failed`` 只应反映**本次**调用。
+        # 原生实现确实会在开头清；但驱动实现是可替换的（测试替身、注入方），
+        # 若不清，上一次运行留下的失败项会混进本次结果（tests/test_rule_validation.py 的 a9）。
+        reset_failures = getattr(module, "reset_last_failures", None)
+        if callable(reset_failures):
+            try:
+                reset_failures()
+            except Exception:  # noqa: BLE001 - 留痕通道坏了不该让整次运行失败
+                pass
+
         buffer = io.StringIO()
         with _scoped_os(module, source_dir, effective):
             # 要点 7：StringIO 同时规避容器 locale 造成的 UnicodeEncodeError。
