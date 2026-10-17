@@ -151,18 +151,21 @@ services:
 
 **3. 按需设置挂载目录、数据目录与端口**：
 
-以记事本格式打开 compose 文件，修改开头的`x-media-root `；
+以记事本格式打开 compose 文件，修改开头的 `x-media-root`；
 
-`x-data-dir` 和 `x-port`可以按需修改，一般不改.
+`x-data-dir` 和 `x-port` 可以按需修改，一般不改。
 
 ```yaml
 # ===== 文件头三个锚点：通常只需要改这一段 =====
 # 媒体共同父目录（下载目录与媒体库的共同父目录；必改）
-x-media-root: &media-root "/vol1/1000"
-# 容器数据目录（默认本文件同目录的 ./data）
-x-data-dir: &data-dir "./data"
-# WebUI 端口（默认 18081，不被占用则无需修改）
-x-port: &port "18081"
+x-media-root: &media-root "${MEDIA_ROOT:-/vol1/1000}"
+
+# 容器数据目录：
+#   如果本文件在第 1 步建好的目录内则可以不改。
+x-data-dir: &data-dir "${MLM_DATA_DIR:-./data}"
+
+# WebUI 端口（未被占用时不必修改）。
+x-port: &port "${PORT:-18081}"
 ```
 
 **① 媒体挂载 `x-media-root` —— 唯一必改项**
