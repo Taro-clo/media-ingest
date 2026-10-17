@@ -13,6 +13,21 @@
 本版包含两处行为改动（出厂默认特典判据新增 `CM集`、`permission_mode` 契约修订），
 以及完整发版实测结果，见下文。
 
+### 部署：一条命令启动、默认零配置（`linux/amd64` / `linux/arm64` 均可）
+
+- **`deploy.sh`**（仓库根）：自动探测媒体父目录（`/vol1/1000`、`/volume1`、`/mnt/user`、`/srv/media` 等候选，
+  也可显式传路径）→ 派生源/目标根 → 写同目录 `.env` → 下载 release compose → `docker compose up -d` →
+  等到 `(healthy)` 并打印访问地址。用户侧只有一条命令。
+- **运行身份默认 `auto`**：`docker/entrypoint.sh` 按 `MEDIA_ROOT`（其次数据目录）的属主自动识别 `PUID`/`PGID`，
+  不必先去宿主 `id`；显式传数字时行为不变，识别失败回退 `1000:1001` 并打 WARN。`docker/Dockerfile` 的默认 ENV
+  同步改为 `auto`（`docker run` 直接跑也能自适应）。
+- **默认值随 `MEDIA_ROOT` 派生**：`DEFAULT_SOURCE_ROOT`/`DEFAULT_TARGET_ROOT` 默认取
+  `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仍只用于首次建库播种）；`HOST_PATH_MAP` 默认 `{}`（恒等）。
+- **数据卷默认 `./data`**（compose 文件同目录），不再写死 `/vol1/1000/Docker/media-ingest/data`，换机器/换根目录不用改配置。
+- 以上只影响部署资产（`docker-compose.yml`、`docker-compose.release.yml`、`.env.example`、`docker/entrypoint.sh`、
+  `docker/Dockerfile`、`deploy.sh` 与文档/校验脚本），**运行时代码、API、数据库结构与媒体处理结果均不变**。
+  `examples/validate-deployment-assets.sh` 相应增加 release compose 与 `deploy.sh` 的静态断言。
+
 ### 变更：出厂默认特典判据（L3）新增第 7 条 `CM集`
 
 纯默认值变更：代码结构、API 形状、数据库结构、媒体处理流程（挂载、端口、环境变量、`/data` 布局）

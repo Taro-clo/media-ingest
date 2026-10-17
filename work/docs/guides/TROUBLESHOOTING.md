@@ -13,7 +13,7 @@
 | **【容器内】** | 在容器里执行：`docker exec -it media-ingest <命令>` |
 | **【浏览器】** | 打开 `http://<NAS_IP>:18081`，在页面上操作 |
 
-后文默认：容器名/服务名 = `media-ingest`，端口 = `18081`，数据卷 = `/vol1/1000/Docker/media-ingest/data`（容器内 `/data`，下称 `<data>`）。`<NAS_IP>`、`/vol1/1000`、`Show A` 都是**示例值**，换成你自己的。
+后文默认：容器名/服务名 = `media-ingest`，端口 = `18081`，数据卷 = 部署目录下的 `./data`（容器内 `/data`，下称 `<data>`；可用 `MLM_DATA_DIR` 改）。`<NAS_IP>`、`/vol1/1000`、`Show A` 都是**示例值**，换成你自己的。
 
 **要调接口时**先登录一次、把会话 cookie 存成文件，后面所有 `-b cookies.txt` 都复用它（**【NAS 宿主】**，用户名/密码换成自己的）：
 

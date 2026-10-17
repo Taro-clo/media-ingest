@@ -126,8 +126,8 @@ ADMIN_PASS="repro-admin-pass"
 #      分属两条独立挂载：否则 entrypoint 启动时那条 `chown -R /data` 会递归进媒体目录。
 docker run -d --name "$CNAME" \
     -p "127.0.0.1:${PORT}:${PORT}" \
-    -e PUID=1000 \
-    -e PGID=1001 \
+    -e PUID="${PUID:-auto}" \
+    -e PGID="${PGID:-auto}" \
     -e TZ=Asia/Shanghai \
     -e DATA_DIR=/data \
     -e PORT="$PORT" \

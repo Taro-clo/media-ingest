@@ -88,8 +88,8 @@ RUN set -eux; \
 #    否则非恒等映射会把用户填写的宿主路径改错。非恒等部署才由 compose/.env 显式设置。
 ENV DATA_DIR=/data \
     CONFIG_DIR=/data/config \
-    PUID=1000 \
-    PGID=1001
+    PUID=auto \
+    PGID=auto
 
 # 文档性声明；实际端口由 ENV PORT 决定（compose 的 ports 需与之一致）。
 EXPOSE 18081

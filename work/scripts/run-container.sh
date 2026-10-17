@@ -10,7 +10,7 @@
 #   数据目录   /vol1/1000/Docker/media-ingest/test-data
 # 环境变量：
 #   MEDIA_ROOT_HOST  媒体共同父挂载（默认 /vol1/1000）
-#   PUID / PGID      运行身份（默认 1000 / 1001）
+#   PUID / PGID      运行身份（默认 auto = 按 MEDIA_ROOT 属主自动识别）
 #   RESET=1          先清空宿主数据目录（默认保留，方便重启验证持久化）
 #
 # 说明：数据目录默认**复用**，只有显式 RESET=1 才删除，避免误删。
@@ -36,7 +36,7 @@ mkdir -p "$DATA"
 docker run -d --name "$C" -p "$PORT:$PORT" \
   -v "$DATA:/data" \
   -v "$MEDIA:$MEDIA" \
-  -e PUID="${PUID:-1000}" -e PGID="${PGID:-1001}" \
+  -e PUID="${PUID:-auto}" -e PGID="${PGID:-auto}" \
   -e DATA_DIR=/data -e CONFIG_DIR=/data/config -e PORT="$PORT" \
   -e TZ="${TZ:-Asia/Shanghai}" -e LANG=C.UTF-8 -e PYTHONUTF8=1 \
   -e MEDIA_ROOT="$MEDIA" \

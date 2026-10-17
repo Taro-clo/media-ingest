@@ -78,6 +78,8 @@ ko()   { FAIL=$((FAIL + 1)); printf '  [FAIL] %s\n' "$*"; }
 [ -f "$REPO/docker/Dockerfile" ]  || { echo "在 $REPO 找不到 docker/Dockerfile" >&2; exit 2; }
 
 cp "$REPO/docker-compose.yml" "$WORK/"
+[ -f "$REPO/docker-compose.release.yml" ] && cp "$REPO/docker-compose.release.yml" "$WORK/"
+[ -f "$REPO/../deploy.sh" ] && cp "$REPO/../deploy.sh" "$WORK/"
 [ -f "$REPO/.env.example" ] && cp "$REPO/.env.example" "$WORK/"
 cp "$REPO/docker/entrypoint.sh" "$REPO/docker/healthcheck.sh" "$WORK/"
 cp "$REPO/docker/Dockerfile" "$WORK/"
@@ -90,20 +92,20 @@ cp "$REPO/docker/Dockerfile" "$WORK/"
 cd "$WORK"
 
 note "1. POSIX sh 语法（dash）"
-for f in entrypoint.sh healthcheck.sh minimal-repro.sh; do
+for f in entrypoint.sh healthcheck.sh minimal-repro.sh deploy.sh; do
     [ -f "$f" ] || continue
     if sh -n "$f" 2>"$WORK/.err"; then ok "$f"; else ko "$f: $(cat "$WORK/.err")"; fi
 done
 
 note "2. bash 语法"
-for f in entrypoint.sh healthcheck.sh minimal-repro.sh; do
+for f in entrypoint.sh healthcheck.sh minimal-repro.sh deploy.sh; do
     [ -f "$f" ] || continue
     if bash -n "$f" 2>"$WORK/.err"; then ok "$f"; else ko "$f: $(cat "$WORK/.err")"; fi
 done
 
 note "3. 是否残留 CR（Windows 编辑器引入的行尾 \\r 会让 /bin/sh 解析失败）"
 cr_files=""
-for f in entrypoint.sh healthcheck.sh minimal-repro.sh docker-compose.yml .env.example; do
+for f in entrypoint.sh healthcheck.sh minimal-repro.sh deploy.sh docker-compose.yml docker-compose.release.yml .env.example; do
     [ -f "$f" ] || continue
     if LC_ALL=C grep -q "$(printf '\r')" "$f" 2>/dev/null; then cr_files="$cr_files $f"; fi
 done
@@ -115,7 +117,10 @@ fi
 
 note "4. shellcheck（可选）"
 if command -v shellcheck >/dev/null 2>&1; then
-    if shellcheck -s sh -S warning entrypoint.sh healthcheck.sh; then ok "shellcheck 无 warning 级问题"; else ko "shellcheck 报出问题（见上）"; fi
+    sc_targets="entrypoint.sh healthcheck.sh"
+    [ -f deploy.sh ] && sc_targets="$sc_targets deploy.sh"
+    # shellcheck disable=SC2086  # 目标列表按空白拆开是有意的
+    if shellcheck -s sh -S warning $sc_targets; then ok "shellcheck 无 warning 级问题"; else ko "shellcheck 报出问题（见上）"; fi
 else
     printf '  [SKIP] 未安装 shellcheck\n'
 fi
@@ -430,9 +435,13 @@ data = vols.get("/data")
 check(data is not None, "volumes 含 /data（数据卷）")
 if data is not None:
     check(not data.get("read_only"), "volumes /data 可写（SQLite/日志需要写入）")
+    check(str(data.get("source", "")).endswith("/data"),
+          "数据卷默认落在 compose 文件同目录的 ./data（source=%r，免配置、不污染根目录）"
+          % (data.get("source"),))
 
 env = s.get("environment") or {}
-for k, want in (("PUID", "1000"), ("PGID", "1001"), ("TZ", "Asia/Shanghai"),
+# 运行身份默认 auto：容器按媒体挂载属主自动识别，用户不必再去宿主查 id。
+for k, want in (("PUID", "auto"), ("PGID", "auto"), ("TZ", "Asia/Shanghai"),
                 ("DATA_DIR", "/data"), ("PORT", "18081"),
                 ("CONFIG_DIR", "/data/config"),
                 ("LANG", "C.UTF-8"), ("PYTHONUTF8", "1"), ("PYTHONIOENCODING", "utf-8")):
@@ -444,9 +453,14 @@ if len(media) == 1:
     check(str(env.get("MEDIA_ROOT")) == str(media[0].get("target")),
           "environment MEDIA_ROOT == 媒体卷挂载点（%r vs %r）"
           % (env.get("MEDIA_ROOT"), media[0].get("target")))
-check("DEFAULT_SOURCE_ROOT" in env and "DEFAULT_TARGET_ROOT" in env,
-      "environment 声明 DEFAULT_SOURCE_ROOT/DEFAULT_TARGET_ROOT"
-      "（只作首次建库播种的 DB 初值；改 env 对已存在 DB 不生效）")
+# 源/目标根默认从 MEDIA_ROOT 派生：换任意根目录都不需要用户再填这两项。
+media_root = str(env.get("MEDIA_ROOT") or "")
+check(env.get("DEFAULT_SOURCE_ROOT") == media_root + "/Download",
+      "DEFAULT_SOURCE_ROOT 由 MEDIA_ROOT 派生（期望 %r，实际 %r）"
+      % (media_root + "/Download", env.get("DEFAULT_SOURCE_ROOT")))
+check(env.get("DEFAULT_TARGET_ROOT") == media_root + "/Library",
+      "DEFAULT_TARGET_ROOT 由 MEDIA_ROOT 派生（期望 %r，实际 %r）"
+      % (media_root + "/Library", env.get("DEFAULT_TARGET_ROOT")))
 # 反向断言：CONFIG_SYNC_INTERVAL_SECONDS **不得**作为 env 出现。
 # 应用只读 DB 设置键 `config_sync_interval_seconds`（app/configstore.py:623、
 # app/processors/registry.py:402），留一个同名 env 会让人以为改了周期而实际不生效。
@@ -472,7 +486,89 @@ PYEOF
         ok "docker-compose.yml 的 HOST_PATH_MAP 默认值不含 /downloads"
     fi
 
-    note "7. 端口贯穿（PORT=18099：宿主发布端口与容器内 PORT 必须同步移动）"
+    note "6b. 镜像部署 compose（docker-compose.release.yml：预构建镜像路径）"
+    if [ ! -f docker-compose.release.yml ]; then
+        printf '  [SKIP] 无 docker-compose.release.yml\n'
+    elif docker compose -f docker-compose.release.yml config --format json > rendered-rel.json 2>err-rel.txt; then
+        if python3 - "$WORK" <<'PYEOF'
+import json, os, sys
+work = sys.argv[1]
+d = json.load(open(os.path.join(work, "rendered-rel.json")))
+s = d["services"]["media-ingest"]
+PASS = FAIL = 0
+def check(cond, label):
+    global PASS, FAIL
+    if cond:
+        PASS += 1; print("  [PASS] " + label)
+    else:
+        FAIL += 1; print("  [FAIL] " + label)
+
+check(str(s.get("image")) == "ghcr.io/taro-clo/media-ingest:1.0.0",
+      "release 镜像默认钉住 ghcr.io/taro-clo/media-ingest:1.0.0（实际 %r）" % (s.get("image"),))
+check("build" not in s, "release compose 不含 build（纯拉取，无需源码/本地构建）")
+check(s.get("container_name") == "media-ingest", "container_name = media-ingest")
+check("env_file" not in s, "release compose 不依赖 .env（环境变量全部在 environment 里自带默认）")
+ports = s.get("ports") or []
+p = ports[0] if ports else {}
+check(p.get("target") == 18081 and str(p.get("published")) == "18081",
+      "release ports 默认 18081:18081 -> %r" % (ports,))
+vols = {v.get("target"): v for v in (s.get("volumes") or [])}
+check(len(vols) == 2, "release volumes 恰好两条（媒体共同父挂载 + /data，实际 %d）" % len(vols))
+media = [v for v in (s.get("volumes") or []) if v.get("target") != "/data"]
+check(len(media) == 1, "release 媒体共同父挂载恰好一条")
+if len(media) == 1:
+    check(str(media[0].get("source")) == str(media[0].get("target")),
+          "release 媒体挂载容器路径 = 宿主路径（source=%s target=%s）"
+          % (media[0].get("source"), media[0].get("target")))
+data = vols.get("/data")
+check(data is not None, "release volumes 含 /data")
+if data is not None:
+    check(str(data.get("source", "")).endswith("/data"),
+          "release 数据卷默认 ./data（source=%r）" % (data.get("source"),))
+env = s.get("environment") or {}
+for k, want in (("PUID", "auto"), ("PGID", "auto"), ("DATA_DIR", "/data"),
+                ("CONFIG_DIR", "/data/config"), ("PORT", "18081")):
+    check(env.get(k) == want, "release environment %s = %r" % (k, want))
+check("HOST_PATH_MAP" not in env,
+      "release 不声明 HOST_PATH_MAP（单挂载下空映射=恒等，由应用默认值提供）")
+media_root = str(env.get("MEDIA_ROOT") or "")
+check(media_root.startswith("/"), "release MEDIA_ROOT 是绝对路径 -> %r" % (media_root,))
+check(env.get("DEFAULT_SOURCE_ROOT") == media_root + "/Download",
+      "release DEFAULT_SOURCE_ROOT 由 MEDIA_ROOT 派生（期望 %r，实际 %r）"
+      % (media_root + "/Download", env.get("DEFAULT_SOURCE_ROOT")))
+check(env.get("DEFAULT_TARGET_ROOT") == media_root + "/Library",
+      "release DEFAULT_TARGET_ROOT 由 MEDIA_ROOT 派生（期望 %r，实际 %r）"
+      % (media_root + "/Library", env.get("DEFAULT_TARGET_ROOT")))
+print("  ---- release compose 事实小计：%d PASS / %d FAIL ----" % (PASS, FAIL))
+sys.exit(0 if FAIL == 0 else 1)
+PYEOF
+        then
+            ok "release compose 渲染后的事实清单（纯拉取/端口/双卷/auto 身份/派生根）"
+        else
+            ko "release compose 渲染后的事实清单与预期不符（见上）"
+        fi
+    else
+        ko "docker-compose.release.yml 渲染失败：$(cat err-rel.txt)"
+    fi
+
+    note "6c. deploy.sh（一键部署脚本：语法/关键行为静态检查）"
+    if [ ! -f deploy.sh ]; then
+        printf '  [SKIP] 无 deploy.sh\n'
+    else
+        if grep -q 'MEDIA_ROOT' deploy.sh && grep -q 'MLM_VERSION' deploy.sh \
+           && grep -q 'docker compose' deploy.sh; then
+            ok "deploy.sh 引用 MEDIA_ROOT / MLM_VERSION / docker compose"
+        else
+            ko "deploy.sh 缺少关键变量或 compose 调用"
+        fi
+        if grep -q 'PUID=auto\|PUID.*auto' deploy.sh || ! grep -q 'PUID=' deploy.sh; then
+            ok "deploy.sh 不强制用户填写 PUID/PGID（交给容器 auto 识别）"
+        else
+            ko "deploy.sh 又要求用户手填 PUID（应交给容器 auto 识别）"
+        fi
+    fi
+
+
     PORT=18099 docker compose -f docker-compose.yml config --format json 2>/dev/null > rendered99.json
     if python3 - "$WORK" <<'PYEOF'
 import json, os, sys

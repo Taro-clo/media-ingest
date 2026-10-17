@@ -36,8 +36,10 @@ log() { printf '%s [entrypoint] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 warn() { printf '%s [entrypoint][WARN] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2; }
 die() { printf '%s [entrypoint][FATAL] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2; exit 1; }
 
-PUID="${PUID:-1000}"
-PGID="${PGID:-1001}"
+# PUID/PGID 默认 auto：按媒体共同父挂载的属主自动识别（见下面第 0 节），
+# 用户不必再去宿主查 id。显式传数字时按数字来（老部署/特殊权限场景）。
+PUID="${PUID:-auto}"
+PGID="${PGID:-auto}"
 DATA_DIR="${DATA_DIR:-/data}"
 # DATA_DIR 不是 /data 时，CONFIG_DIR 的默认值跟随 DATA_DIR（与应用侧 config.py 的
 # CONFIG_DIR 语义一致），并**导出**给应用进程 —— 否则应用会去用 /data/config，
@@ -59,7 +61,51 @@ APP_HOME="/srv/mlm"
 APP_GROUP="app"
 
 # ---------------------------------------------------------------------------
-# 0. 基本校验
+# 0. 运行身份自动识别（PUID/PGID = auto 时）
+#    "能读下载源、能写媒体库"的那个用户，就是媒体共同父挂载的属主，直接用它的
+#    uid/gid，省掉用户去宿主执行 `id` 再手填。识别顺序：
+#      $MEDIA_ROOT 属主 -> $DATA_DIR 属主 -> 1000:1001（镜像内的通用默认）
+#    只读 stat，不写任何东西；显式传入数字时完全不介入。
+# ---------------------------------------------------------------------------
+pair_of_owner() {
+    [ -n "${1:-}" ] || return 0
+    [ -d "$1" ] || return 0
+    stat -c '%u %g' "$1" 2>/dev/null || true
+}
+puid_auto=0
+pgid_auto=0
+case "$PUID" in auto|"") puid_auto=1 ;; esac
+case "$PGID" in auto|"") pgid_auto=1 ;; esac
+if [ "$puid_auto" = 1 ] || [ "$pgid_auto" = 1 ]; then
+    det=""
+    det_src=""
+    for cand in "${MEDIA_ROOT:-}" "$DATA_DIR"; do
+        [ -n "$cand" ] || continue
+        pair="$(pair_of_owner "$cand")"
+        [ -n "$pair" ] || continue
+        det_uid="${pair%% *}"
+        det_gid="${pair##* }"
+        if [ "$det_uid" != "0" ]; then
+            det="$pair"
+            det_src="$cand"
+            break
+        fi
+    done
+    if [ -n "$det" ]; then
+        det_uid="${det%% *}"
+        det_gid="${det##* }"
+        if [ "$puid_auto" = 1 ]; then PUID="$det_uid"; fi
+        if [ "$pgid_auto" = 1 ]; then PGID="$det_gid"; fi
+        log "自动识别运行身份：PUID=${PUID} PGID=${PGID}（取自 ${det_src} 的属主）"
+    else
+        warn "无法从媒体挂载/数据目录识别属主，回退默认 1000:1001；若读写报 Permission denied，请显式设置 PUID/PGID"
+    fi
+fi
+PUID="${PUID:-1000}"
+PGID="${PGID:-1001}"
+
+# ---------------------------------------------------------------------------
+# 0.1 基本校验
 # ---------------------------------------------------------------------------
 [ -n "$PUID" ] || die "PUID 不能为空"
 [ -n "$PGID" ] || die "PGID 不能为空"

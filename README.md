@@ -39,47 +39,47 @@
 |---|---|
 | 系统 | 任意 Linux（NAS、服务器、PC），x86_64 或 arm64 |
 | 运行时 | Docker 20.10+ 与 Docker Compose v2 |
-| 镜像 | 预构建多架构镜像 `ghcr.io/taro-clo/media-ingest`（linux/amd64、linux/arm64）；镜像部署无需本地构建 |
+| 镜像 | 预构建多架构镜像 `ghcr.io/taro-clo/media-ingest`（linux/amd64、linux/arm64，按宿主自动选择）；镜像部署无需本地构建 |
 | **关键前提** | **下载目录与媒体库必须在同一个挂载点内** —— 硬链接的内核限制；拆成两个挂载会报 `Invalid cross-device link` |
 | 端口 | 默认 `18081`（可改） |
-| 权限 | 容器内以非 root 用户（`PUID` / `PGID`）运行；需对下载目录可读、对媒体库可写 |
+| 权限 | 容器内以非 root 用户运行；`PUID`/`PGID` 默认 `auto`，按媒体目录属主自动识别，一般不用配 |
 | 可选 | qBittorrent（自动触发）；Emby / Jellyfin（消费媒体库） |
 
 ## 快速开始（镜像部署，推荐）
 
-不需要克隆源码，只需要一个 compose 文件（仓库里的 [`work/docker-compose.release.yml`](work/docker-compose.release.yml)）。
-以下路径以 NAS 的 `/vol1/1000` 为例，按你的实际环境修改。
-
-1. 确认媒体父目录存在（下载目录与媒体库都在它下面）：
-   ```bash
-   mkdir -p /vol1/1000/Docker/media-ingest/data
-   ```
-2. 取 compose 文件（也可以 `git clone` 仓库后用 `work/docker-compose.release.yml`）：
-   ```bash
-   curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
-   ```
-3. 启动（首次会拉取镜像；数据目录默认 `/vol1/1000/Docker/media-ingest/data`，端口默认 `18081`）：
-   ```bash
-   docker compose -f docker-compose.release.yml pull
-   docker compose -f docker-compose.release.yml up -d
-   docker compose -f docker-compose.release.yml ps      # STATUS 列出现 (healthy) 即成功
-   ```
-4. 浏览器打开 `http://<NAS 的 IP>:18081`，按向导创建管理员，然后新建第一个媒体库。
-
-换路径 / 端口无需改文件，用环境变量覆盖即可（也可在同目录放 `.env`，写法同 `.env.example`）：
+不需要克隆源码、不需要本机构建、不需要写配置文件。**一条命令**（脚本自动探测媒体目录、拉镜像、等到健康）：
 
 ```bash
-MEDIA_ROOT=/mnt/media \
-MLM_DATA_DIR=/mnt/media/docker/media-ingest/data \
-DEFAULT_SOURCE_ROOT=/mnt/media/Download \
-DEFAULT_TARGET_ROOT=/mnt/media/Library \
-PUID=1000 PGID=1000 PORT=18081 \
-  docker compose -f docker-compose.release.yml up -d
+curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/deploy.sh
+sh deploy.sh                  # 自动探测媒体根目录；探测不准就显式指定，如 sh deploy.sh /mnt/media
 ```
 
-- `MEDIA_ROOT`：下载目录与媒体库的**共同父目录**，必须已存在，且容器内路径与宿主一致。
-- `DEFAULT_SOURCE_ROOT` / `DEFAULT_TARGET_ROOT`：**只在首次建库**时作为"允许的源/目标根"播种；已部署实例请在 WebUI「设置」页改。
-- `MLM_VERSION=latest` 可跟随最新发布，默认钉住 `1.0.0`。
+脚本会打印访问地址。参数是**下载目录与媒体库的共同父目录**，例如 `/vol1/1000`（群晖常是 `/volume1`，TrueNAS `/mnt/...`）。
+它自己会：探测 `MEDIA_ROOT` → 派生源/目标根 → 拉取镜像 → 启动 → 等到 `(healthy)`。
+
+不想用脚本也可以，手工等价步骤（只有 `MEDIA_ROOT` 要你给值）：
+
+```bash
+mkdir -p /vol1/1000/Docker/media-ingest && cd /vol1/1000/Docker/media-ingest
+curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
+MEDIA_ROOT=/vol1/1000 docker compose -f docker-compose.release.yml up -d
+docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) 即成功
+```
+
+默认值（都不用配，要改就用同目录 `.env` 或环境变量覆盖）：
+
+| 项 | 默认 | 覆盖示例 |
+|---|---|---|
+| 镜像版本 | `1.0.0` | `MLM_VERSION=latest` |
+| 数据目录（`/data`） | compose 同目录的 `./data` | `MLM_DATA_DIR=/你的路径/data` |
+| 运行身份 | `auto`（按媒体目录属主识别） | `PUID=1000 PGID=1000` |
+| 源 / 目标根 | `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仅首次建库播种） | `DEFAULT_SOURCE_ROOT=…` |
+| 端口 | `18081` | `PORT=18099` |
+| 路径映射 | 空 = 恒等 | 容器内路径 ≠ 宿主路径时才需要 `HOST_PATH_MAP` |
+
+- `MEDIA_ROOT` 必须是宿主上**已存在**的目录，且下载目录与媒体库都在它下面（硬链接的硬前提）。
+- 启动后浏览器打开 `http://<你的 IP>:18081`，按向导创建管理员，再新建第一个媒体库。
+- 想从源码构建（改代码 / 访问不了 GHCR）：见下方「快速开始（从源码构建）」。
 
 > 失败排查、升级回滚与备份见 [`work/docs/guides/DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md)；
 > 从零开始的完整演练见 [`work/examples/nas-deploy.md`](work/examples/nas-deploy.md)。
@@ -90,11 +90,11 @@ PUID=1000 PGID=1000 PORT=18081 \
 
 1. 把 `work/` 整个目录（或发布源码包解出的内容）放到 NAS，例如 `/vol1/1000/Docker/media-ingest`；
    确认 `.env` 里的 `MEDIA_ROOT`（下载目录与媒体库的共同父目录，默认 `/vol1/1000`）在宿主上**已存在**。
-2. 复制配置并修改三项：
+2. 复制配置，只按需求改 `MEDIA_ROOT`（其余默认值都能用：`PUID/PGID=auto` 自动识别、数据目录 `./data`、源/目标根从 `MEDIA_ROOT` 派生）：
    ```bash
    cd /vol1/1000/Docker/media-ingest
    cp .env.example .env
-   vi .env          # 至少改 PUID / PGID / MEDIA_ROOT
+   vi .env          # 通常只需改 MEDIA_ROOT
    ```
 3. 构建并启动（首次构建需要几分钟；数据目录默认建在部署目录下的 `./data`，想放别处就在 `.env` 里设 `MLM_DATA_DIR`）：
    ```bash
