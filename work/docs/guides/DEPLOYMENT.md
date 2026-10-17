@@ -514,12 +514,12 @@ curl -s -X POST "http://127.0.0.1:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>
 
 ### 5.4 回调漏了怎么办（扫描补偿）
 
-**（a）目录扫描（推荐）**：设置页打开 `scan_enabled = true`，`scan_interval_seconds = 900`（15 分钟）。会定期扫描所有已启用库的 `source_dir`，发现「没记录过、或体积变了」的一级文件夹就建任务。
+**（a）目录扫描（推荐）**：`scan_enabled` **首次建库默认就是 `true`**，`scan_interval_seconds = 900`（15 分钟）。会定期扫描所有已启用库的 `source_dir`，发现「没记录过、或体积变了」的一级文件夹就建任务。确认当前值 / 手动改回来可用：
 
 ```bash
 curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
   -H 'Content-Type: application/json' \
-  -d '{"scan_enabled":"true","scan_interval_seconds":"900"}'
+  -d '{"scan_enabled": true, "scan_interval_seconds": 900}'
 ```
 
 **（b）手动触发一次扫描**：`curl -s -X POST "http://127.0.0.1:18081/api/hooks/scan?token=<HOOK_TOKEN>"` —— 这个接口**不看** `scan_enabled` 开关，手动调用总是执行一次扫描。

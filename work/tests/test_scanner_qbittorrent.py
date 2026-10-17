@@ -64,3 +64,21 @@ def test_refresh_is_a_noop_without_a_configured_address(scanner, qb_mod, db_mod,
 
     assert calls == [], "未配置地址时不许去打扰 qB"
     assert db_mod.get_setting("qbittorrent_last_status") in (None, "")
+
+
+# ------------------------------------------------- 目录扫描的出厂默认值
+# 需求：目录扫描默认开启（回调漏了也能自愈），用户不必先去设置页手动打开。
+
+
+def test_scan_enabled_defaults_to_true_on_a_fresh_db(db_mod):
+    """全新数据库的出厂默认值是 true（与 API.md / ARCHITECTURE.md 的默认值表一致）。"""
+    assert db_mod.get_setting("scan_enabled") == "true"
+
+
+def test_init_db_keeps_an_existing_scan_toggle(db_mod):
+    """升级场景：已有 DB 里关过扫描的用户，不该被下一次启动强行打开。"""
+    db_mod.set_setting("scan_enabled", "false")
+
+    db_mod.init_db()
+
+    assert db_mod.get_setting("scan_enabled") == "false"

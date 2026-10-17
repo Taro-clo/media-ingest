@@ -327,8 +327,8 @@ function formHtml(lib, processors, globalExtText) {
             control: switchControl({ id: 'permission_mode', checked: !!lib.permission_mode, label: t('common.on') })
           })}
         </div>
-        <p class="callout callout-danger">${raw(icon('alert', 13))}<span>${t('le.orphan_cleanup.risk')}</span></p>
-        <p class="callout callout-danger">${raw(icon('alert', 13))}<span>${t('le.permission_mode.risk')}</span></p>
+        <p class="callout callout-danger" id="risk-orphan_cleanup" hidden>${raw(icon('alert', 13))}<span>${t('le.orphan_cleanup.risk')}</span></p>
+        <p class="callout callout-danger" id="risk-permission_mode" hidden>${raw(icon('alert', 13))}<span>${t('le.permission_mode.risk')}</span></p>
       </div>
     </section>
 
@@ -478,6 +478,20 @@ export async function render(container, params) {
     if (warn) warn.hidden = !empty;
   }
   updateMatchWarn();
+
+  // ---------------- 行为选项：风险提示只在对应开关开启时显示 ----------------
+  const orphanSwitch = container.querySelector('#orphan_cleanup');
+  const permissionSwitch = container.querySelector('#permission_mode');
+  const orphanRisk = container.querySelector('#risk-orphan_cleanup');
+  const permissionRisk = container.querySelector('#risk-permission_mode');
+
+  function syncOptionRisks() {
+    if (orphanRisk) orphanRisk.hidden = !(orphanSwitch && orphanSwitch.checked);
+    if (permissionRisk) permissionRisk.hidden = !(permissionSwitch && permissionSwitch.checked);
+  }
+  if (orphanSwitch) orphanSwitch.addEventListener('change', syncOptionRisks);
+  if (permissionSwitch) permissionSwitch.addEventListener('change', syncOptionRisks);
+  syncOptionRisks();
 
   // ---------------- 处理器：命名方式只读摘要 ----------------
   const processorSelect = container.querySelector('#processor_id');

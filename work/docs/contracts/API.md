@@ -1053,7 +1053,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 
 ```json
 {
-  "scan_enabled": false,
+  "scan_enabled": true,
   "scan_interval_seconds": 900,
   "log_level": "INFO",
   "max_history": 2000,
@@ -1157,7 +1157,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | key | 默认值 | 说明 |
 |---|---|---|
 | `hook_token` | 随机生成 | `/api/hooks/*` 的 token（三种传法见 §6） |
-| `scan_enabled` | `false` | 目录扫描补偿开关（回调漏了也能补上） |
+| `scan_enabled` | `true` | 目录扫描补偿开关（**首次建库默认开启**；关掉后只剩手动触发，回调漏了就没人补） |
 | `scan_interval_seconds` | `900` | 扫描周期（秒），区间 30–86400 |
 | `qbittorrent_url` | `""` | 例如 `http://$HOST_IP:18080` |
 | `qbittorrent_username` / `qbittorrent_password` | `""` | 可选，用于 API 补偿与「测试连接」 |

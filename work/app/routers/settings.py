@@ -132,7 +132,7 @@ def settings_view() -> dict:
     """按契约形状读全量设置（值已按类型解析，§5.0 第 4 条）。"""
     stored = all_settings()
     view: dict = {
-        "scan_enabled": _parse_bool(stored.get("scan_enabled"), False),
+        "scan_enabled": _parse_bool(stored.get("scan_enabled"), True),
         "scan_interval_seconds": _parse_int(stored.get("scan_interval_seconds"), 900),
         "log_level": (stored.get("log_level") or "INFO").strip().upper() or "INFO",
         "max_history": _parse_int(stored.get("max_history"), 2000),

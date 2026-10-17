@@ -137,7 +137,7 @@ CREATE UNIQUE INDEX idx_link_records_library_folder ON link_records(library_id, 
 | key | 默认 | 说明 |
 |---|---|---|
 | `hook_token` | 随机 | `/api/hooks/*` 的 Bearer token |
-| `scan_enabled` / `scan_interval_seconds` | `false` / `900` | 目录扫描补偿 |
+| `scan_enabled` / `scan_interval_seconds` | `true` / `900` | 目录扫描补偿（默认开启） |
 | `qbittorrent_url` / `_username` / `_password` | `""` | 仅状态展示与连通性测试（触发一律走回调） |
 | `log_level` | `INFO` | 应用日志等级 |
 | `orphan_cleanup_enabled` | `true` | 全局孤儿清理总开关 |

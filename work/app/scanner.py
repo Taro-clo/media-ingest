@@ -170,7 +170,7 @@ class Scanner:
         只有 ``scan_enabled`` 为真、且距上次自动扫描超过 ``scan_interval_seconds`` 时才干活；
         手动触发走 :meth:`scan_libraries`，不受这两条限制。
         """
-        if not _is_true(get_setting("scan_enabled", "false")):
+        if not _is_true(get_setting("scan_enabled", "true")):
             return 0
         now = datetime.now(timezone.utc)
         if not self._due(now):
@@ -214,7 +214,7 @@ class Scanner:
         last = parse_iso(get_setting("scan_last_run_at"))
         next_run = _iso_z(last + timedelta(seconds=interval)) if last is not None else None
         return {
-            "enabled": _is_true(get_setting("scan_enabled", "false")),
+            "enabled": _is_true(get_setting("scan_enabled", "true")),
             "interval_seconds": interval,
             "last_run_at": get_setting("scan_last_run_at"),
             # 从未扫过时为 null：那不叫"下次运行时间未知"，而叫"还没开始算"。

@@ -159,7 +159,7 @@ curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
 
 也就是说：qBittorrent 停了，你手动跑一次照样能把已下载的整理好。这也是扫描补偿存在的意义 —— 回调漏了（容器重启、curl 超时）还能补上。
 
-> ⚠️ 扫描补偿**默认关闭**（`scan_enabled=false`），打开后才有周期性扫描；开关与间隔在设置页，见 [`USER_GUIDE.md`](USER_GUIDE.md) §8.4。
+> ⚠️ 扫描补偿**默认开启**（`scan_enabled=true`，每 900 秒扫一次）；可在设置页关掉或调整周期，见 [`USER_GUIDE.md`](USER_GUIDE.md) §8.4。已有部署升级上来时保留原来的开关值，不会被强制打开。
 
 ## 13. 能不能同时处理多个库？
 

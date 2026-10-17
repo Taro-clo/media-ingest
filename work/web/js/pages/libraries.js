@@ -120,7 +120,7 @@ function rowHtml(lib) {
         <span class="mono path">${lib.target_dir || '—'}</span>
       </div>
     </td>
-    <td data-label="${t('lib.col.last_task')}">${raw(lastTaskCell(lib))}</td>
+    <td data-label="${t('lib.col.last_task')}" data-cell="last-task">${raw(lastTaskCell(lib))}</td>
     <td data-label="${t('lib.col.actions')}">
       <div class="row-actions">
         <button type="button" class="btn btn-primary btn-sm" data-action="run" data-id="${id}"
@@ -478,6 +478,57 @@ async function doDelete(lib, reload) {
 
 export async function render(container) {
   let alive = true;
+  let pollTimer = null;
+
+  // 「最近任务」里还会继续变化的状态：只在这两种状态下才需要自动刷新。
+  const ACTIVE_STATUSES = ['queued', 'running'];
+
+  function hasActiveTask(items) {
+    return (items || []).some(function (lib) {
+      const last = lastTask(lib);
+      return !!last && ACTIVE_STATUSES.indexOf(last.status) !== -1;
+    });
+  }
+
+  function stopPoll() {
+    if (pollTimer) {
+      clearTimeout(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  /** 有任务在排队/执行就排一次刷新；任务结束后停表，不需要用户手动刷新页面。 */
+  function schedulePoll(items) {
+    stopPoll();
+    if (!alive || !hasActiveTask(items)) return;
+    pollTimer = setTimeout(pollLastTasks, 3000);
+  }
+
+  /** 只更新「最近任务」列，不整页重绘（避免滚动位置与弹窗状态被打断）。 */
+  async function pollLastTasks() {
+    pollTimer = null;
+    if (!alive) return;
+    let items;
+    try {
+      const res = await api.listLibraries();
+      items = res.items || [];
+    } catch (err) {
+      // 服务暂时不可用：不打扰用户，稍后再试。
+      if (alive) pollTimer = setTimeout(pollLastTasks, 5000);
+      return;
+    }
+    if (!alive) return;
+    setLibraries(items);
+    const tbody = container.querySelector('#lib-table tbody');
+    if (tbody) {
+      items.forEach(function (lib) {
+        const tr = tbody.querySelector('tr[data-id="' + String(lib.id) + '"]');
+        const cell = tr ? tr.querySelector('td[data-cell="last-task"]') : null;
+        if (cell) cell.innerHTML = String(lastTaskCell(lib));
+      });
+    }
+    schedulePoll(items);
+  }
 
   async function load() {
     container.innerHTML = '<div class="page-head"><div><h1 class="page-title">' + t('lib.title') + '</h1>' +
@@ -488,6 +539,7 @@ export async function render(container) {
       setLibraries(res.items);
       container.innerHTML = listHtml(res.items);
       bind();
+      schedulePoll(res.items);
     } catch (err) {
       if (!alive) return;
       container.innerHTML = errorState({
@@ -546,6 +598,7 @@ export async function render(container) {
 
   return function cleanup() {
     alive = false;
+    stopPoll();
     // 只释放资源，不清空 DOM：内容由每次渲染负责覆盖，
     // 这样即使清理被更晚的渲染延迟调用，也不会抹掉新页面。
   };

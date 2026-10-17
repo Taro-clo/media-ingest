@@ -132,7 +132,7 @@ docker exec qbittorrent curl -s -X POST "http://<HOST_IP>:18081/api/system/healt
 
 ## 6. 回调漏了怎么办
 
-- **扫描补偿（推荐）**：设置页打开 `scan_enabled`，`scan_interval_seconds` 默认 900 秒；它会扫所有启用库的源目录，把「没记录过或体积变了」的一级文件夹补成任务。说明见 [`USER_GUIDE.md`](../docs/guides/USER_GUIDE.md) §8.4。
+- **扫描补偿（推荐）**：`scan_enabled` **首次建库默认开启**，`scan_interval_seconds` 默认 900 秒；它会扫所有启用库的源目录，把「没记录过或体积变了」的一级文件夹补成任务。关掉过就在设置页重新打开，说明见 [`USER_GUIDE.md`](../docs/guides/USER_GUIDE.md) §8.4。
 - **手动触发一次扫描**（不看开关，总是执行）：`curl -s -X POST "http://<HOST_IP>:18081/api/hooks/scan?token=<HOOK_TOKEN>"`。
 - **手动跑某个文件夹**：库详情页的「运行」，等价于 `POST /api/libraries/<id>/run`（`folder` 必须是一级文件夹名）。
 - **为什么回调只是入队**：全局单工作线程串行执行，避免两个任务同时改同一目录；突发几十个种子会排队，不是卡死。

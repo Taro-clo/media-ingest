@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS link_records ({_LINK_RECORDS_COLUMNS});
 
 DEFAULT_SETTINGS: dict[str, str] = {
     # 已存在的 DB 不会被这里覆盖（DEFAULT_SETTINGS 只在 init_db 时 INSERT OR IGNORE）。
-    "scan_enabled": "false",
+    "scan_enabled": "true",
     "scan_interval_seconds": "900",
     "qbittorrent_url": "",
     "qbittorrent_username": "",

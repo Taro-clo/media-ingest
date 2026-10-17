@@ -267,6 +267,11 @@ def main():
     st, body = req("POST", "/api/auth/login", {"password": ADMIN_PW, "username": "admin"})
     check("A2 登录", st == 200, f"HTTP {st}")
 
+    # 目录扫描出厂默认开启（v2 起）：它会在后台按周期自己往队列里提交「全量扫描」任务，
+    # 与本脚本逐项断言的「任务数 / 队列空闲」冲突。验收要自己控制每一步，所以先关掉它。
+    # 出厂默认值本身由 tests 与前端设置页覆盖，这里不重复断言（保持「56 项」口径）。
+    req("PUT", "/api/settings", {"scan_enabled": False})
+
     # ---------- A0 清理：保证从零开始（删遗留库 / 目标树 / 缓存日志） ----------
     st, libs0 = req("GET", "/api/libraries")
     l0 = libs0.get("items") if isinstance(libs0, dict) else libs0
