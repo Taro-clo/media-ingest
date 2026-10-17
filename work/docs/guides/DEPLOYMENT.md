@@ -240,7 +240,7 @@ du -sh <下载根>/<作品> <媒体库根>/<作品>                          # �
 ## 4. 安装步骤（从零到页面可访问）
 
 > **两种装法，先选一种：**
-> 1. **预构建镜像**（推荐，无需源码、无需本机构建） → §4.6：建数据目录 → 下载 compose → 按需改挂载目录 → `up -d`。
+> 1. **预构建镜像**（推荐，无需源码、无需本机构建） → §4.6：建数据目录 → 下载 compose → 按需设置挂载目录 / 数据目录 / 端口 → `up -d`。
 > 2. **从源码构建**（要改代码、或访问不了镜像仓库时） → §4.1–4.5。
 
 ### 4.0 约定值
@@ -248,7 +248,7 @@ du -sh <下载根>/<作品> <媒体库根>/<作品>                          # �
 | 项 | 值 |
 |---|---|
 | Compose 项目目录 | `<项目目录>`（示例 `/vol1/1000/Docker/media-ingest`） |
-| 镜像 / 容器名 | 源码构建 `media-ingest:latest`；镜像部署 `ghcr.io/taro-clo/media-ingest:<版本>`；容器名都是 `media-ingest` |
+| 镜像 / 容器名 | 源码构建 `media-ingest:latest`；镜像部署 `ghcr.io/taro-clo/media-ingest:<tag>`（默认 `latest`，跟随最新发布）；容器名都是 `media-ingest` |
 | 数据卷宿主目录 | `<数据卷>`（默认 `<项目目录>/data`，§2.3） |
 | 端口 / 访问地址 | `18081` / `http://<NAS_IP>:18081` |
 | 容器内运行用户 | `app`（`<PUID>:<PGID>`，出厂示例 `1000:1001`） |
@@ -363,9 +363,11 @@ media-ingest  media-ingest:latest  "/usr/local/bin/…"  Up 45 seconds (healthy)
 ### 4.6 用预构建镜像安装（不构建，推荐）
 
 镜像由 GitHub Actions 构建，多架构（`linux/amd64`、`linux/arm64`，按宿主架构自动选择），推送到 GHCR：
-`ghcr.io/taro-clo/media-ingest:<版本>`。**不需要源码、不需要本机 Docker 构建。**
+`ghcr.io/taro-clo/media-ingest:latest`（默认跟随最新发布；要钉住版本在 `.env` 里设
+`MLM_VERSION=1.0.0`）。**不需要源码、不需要本机 Docker 构建。**
 
-全程三步，只需要你自己决定两件事：**数据目录放哪**、**下载目录与媒体库的共同父目录是什么**。
+全程三步，需要你自己决定的只有三处：**数据目录放哪**、**下载目录与媒体库的共同父目录是什么**、
+**端口要不要换**（默认 `18081` 可用则不用动）。
 
 **① 创建容器数据存储目录**（SQLite、日志、`secret.key`、`config` 都写在这里；路径随意，下面示例换成你自己的）：
 
@@ -374,33 +376,49 @@ mkdir -p <数据卷>
 ```
 
 > 这个目录只要求**可写且持久化**，不要求与媒体同一文件系统；下文用 `MLM_DATA_DIR` 指向它。
+> 它也是**唯一必须备份**的东西（§7），不要放 `/tmp` 这类临时目录，建议放在媒体目录之外。
 
 **② 下载 docker-compose（或从 README 复制内容自行创建）**：
 
 ```bash
 mkdir -p <项目目录> && cd <项目目录>
-curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
+curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/main/work/docker-compose.release.yml
 ```
 
-> 根 [`README.md`](../../../README.md) 的「快速开始（镜像部署）」里有一份可折叠的完整内容，与仓库文件一致。
+> 根 [`README.md`](../../../README.md) 的「快速开始（镜像部署）」里有一份完整内容，与仓库文件一致。
+> `main` 分支 = 仓库最新版：升级时重新下载本文件即可让 compose 与镜像一起更新。
 > 文件名保持 `docker-compose.release.yml` 即可；也可以改名成默认的 `docker-compose.yml`，之后命令里的 `-f …` 相应去掉。
 
-**③ 按需设置挂载目录**（只需改一处）：在 compose 同目录建 `.env`（compose 会自动读取，仅用于 `${VAR}` 插值）：
+**③ 按需设置挂载目录、数据目录与端口**（只改一处）：在 compose 同目录建 `.env`（compose 会自动读取，仅用于 `${VAR}` 插值）：
 
 ```bash
 cat > .env <<'EOF'
-# 必改：下载目录与媒体库的共同父目录（宿主上必须已存在，下载/媒体库都在它下面）
+# ① 必改：下载目录与媒体库的共同父目录（宿主真实存在的绝对路径）
 MEDIA_ROOT=<媒体共同父目录>
-# 可选：用第 ① 步创建的目录（不写 = 本文件同目录的 ./data）
+# ② 建议改：用第 ① 步创建的目录（不写 = 本文件同目录的 ./data）
 MLM_DATA_DIR=<数据卷>
-# 可选：18081 被占用时改（宿主与容器端口同步跟随）
+# ③ 按需改：18081 被占用时换一个（宿主与容器端口同步跟随）
 # PORT=18099
+# ④ 可选：钉住镜像版本（不写 = latest，跟随最新发布）
+# MLM_VERSION=1.0.0
 EOF
 
 docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d
 docker compose -f docker-compose.release.yml ps        # STATUS 出现 (healthy) 即成功
 ```
+
+- **① `MEDIA_ROOT`（唯一必改）**：下载目录与媒体库的共同父目录，例：下载 `/vol1/1000/Download`、
+  媒体库 `/vol1/1000/Library` ⇒ 填 `/vol1/1000`。必须宿主上**已存在**的绝对路径（否则 Docker 会以
+  root 建空目录，程序报源目录不可读写）；容器内路径 = 宿主路径，不要填 `/data`、`/media` 这类容器内路径。
+  下载与媒体库还必须在**同一个挂载点**内（否则硬链接报 `Invalid cross-device link`）——不确定时用
+  `df -T <下载目录> <媒体库目录>` 或 `findmnt -T <目录>` 确认。首次建库会派生源 / 目标根
+  `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`；目录名不同就首次启动后在 WebUI「设置」页改。
+- **② `MLM_DATA_DIR`（建议改）**：指向第 ① 步目录，放 `mlm.db`、`secret.key`、`config/`、`logs/`；
+  不写默认 `./data`。只要求可写且持久化，是唯一必须备份的东西（§7.1）。
+- **③ `PORT`（按需）**：默认 `18081`；`docker compose up` 报 `port is already allocated` 或宿主
+  `ss -ltn | grep 18081` 有输出时换一个端口（如 `18099`）。`ports` 与容器内 `PORT` 用同一变量，
+  改一处两边同步，访问地址随之变化；有防火墙 / 安全组的话记得放行。
 
 > 不用 `.env` 也行：直接改 compose 里的默认值（`${MEDIA_ROOT:-/vol1/1000}` 等），或命令行前缀环境变量
 > （`MEDIA_ROOT=/mnt/media docker compose -f docker-compose.release.yml up -d`）。
@@ -411,7 +429,7 @@ docker compose -f docker-compose.release.yml ps        # STATUS 出现 (healthy)
 
 | 项 | 默认 | 想改时 |
 |---|---|---|
-| 镜像版本 | `1.0.0` | `MLM_VERSION=latest` 或具体版本号 |
+| 镜像版本 | `latest`（跟随最新发布） | `.env` 里 `MLM_VERSION=1.0.0` 钉住固定版本 |
 | 媒体共同父目录 | `/vol1/1000` | `.env` 里 `MEDIA_ROOT=/你的/路径`（只改一处） |
 | 数据卷（宿主） | compose 文件同目录的 `./data` | `MLM_DATA_DIR=/你的/路径/data` |
 | 运行身份 | `PUID=auto` / `PGID=auto`：按 `MEDIA_ROOT` 属主自动识别（识别失败回退 `1000:1001` 并在日志 WARN） | 想固定就写数字 `PUID=1000 PGID=1000` |
@@ -424,8 +442,8 @@ docker compose -f docker-compose.release.yml ps        # STATUS 出现 (healthy)
 - 后续验证、创建管理员、接 qBittorrent 与源码构建完全相同：§4.4 → §4.5 → §5。
 
 > GHCR 在国内部分网络下可能较慢或不可达；这种情况用源码构建（§4.3），或先在有网络的地方
-> `docker pull` 后 `docker save -o media-ingest.tar ghcr.io/taro-clo/media-ingest:1.0.0`，拷到 NAS 再
-> `docker load -i media-ingest.tar`，然后把 compose 里的 `image:` 改成加载后的镜像名。
+> `docker pull` 后 `docker save -o media-ingest.tar ghcr.io/taro-clo/media-ingest:latest`，拷到 NAS 再
+> `docker load -i media-ingest.tar` —— 加载后的镜像名就是 compose 默认的 `latest`，通常不用改 `image:`。
 > 非 x86_64 的 NAS（arm64）不用改任何东西：镜像里有 arm64 版，`docker pull` 会按架构自动挑选。
 
 ---
@@ -536,11 +554,18 @@ docker compose up -d --build
 
 ### 6.4 只升级不重建（用预构建镜像）
 
-镜像部署（§4.6）换版本只需要重新拉镜像，不构建、不碰数据卷：
+镜像部署（§4.6）换版本只需要重新拉镜像，不构建、不碰数据卷。默认跟随 `latest` 时：
 
 ```bash
 cd <项目目录>
-# 先备份（§7），再把 MLM_VERSION 改成目标版本（或改 compose 里的镜像 tag）
+# 先备份（§7）；compose 若也从 main 重新下载过，镜像与配置就一起更新
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+```
+
+要钉住某个固定发布（而不是跟随 `latest`）：
+
+```bash
 MLM_VERSION=1.0.1 docker compose -f docker-compose.release.yml pull
 MLM_VERSION=1.0.1 docker compose -f docker-compose.release.yml up -d
 ```

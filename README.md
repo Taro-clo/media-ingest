@@ -4,7 +4,8 @@
 **只建硬链接 + 按规则改名，不复制文件、不改动下载目录里的源文件。**
 
 单 Docker 镜像交付（后端 FastAPI + 原生 JS WebUI，中文界面），当前版本 **1.0.0**。
-提供预构建多架构镜像（x86_64 / arm64），**两条命令即可部署**，不克隆源码、不需要本地构建。
+提供预构建多架构镜像（x86_64 / arm64），**三步即可部署**，不克隆源码、不需要本地构建；
+镜像默认跟随最新发布（`latest`），需要固定版本时在 `.env` 里钉住（见步骤 3）。
 
 ## 它解决什么问题
 
@@ -35,15 +36,15 @@
 
 ## 运行要求
 
-| 项 | 要求 |
-|---|---|
-| 系统 | 任意 Linux（NAS、服务器、PC），x86_64 或 arm64 |
-| 运行时 | Docker 20.10+ 与 Docker Compose v2 |
-| 镜像 | 预构建多架构镜像 `ghcr.io/taro-clo/media-ingest`（linux/amd64、linux/arm64，按宿主自动选择）；镜像部署无需本地构建 |
-| **关键前提** | **下载目录与媒体库必须在同一个挂载点内** —— 硬链接的内核限制；拆成两个挂载会报 `Invalid cross-device link` |
-| 端口 | 默认 `18081`（可改） |
-| 权限 | 容器内以非 root 用户运行；`PUID`/`PGID` 默认 `auto`，按媒体目录属主自动识别，一般不用配 |
-| 可选 | qBittorrent（自动触发）；Emby / Jellyfin（消费媒体库） |
+| 项           | 要求                                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------ |
+| 系统         | 任意 Linux（NAS、服务器、PC），x86_64 或 arm64                                                                     |
+| 运行时       | Docker 20.10+ 与 Docker Compose v2                                                                                 |
+| 镜像         | 预构建多架构镜像 `ghcr.io/taro-clo/media-ingest`（linux/amd64、linux/arm64，按宿主自动选择）；镜像部署无需本地构建 |
+| **关键前提** | **下载目录与媒体库必须在同一个挂载点内** —— 硬链接的内核限制；拆成两个挂载会报 `Invalid cross-device link`         |
+| 端口         | 默认 `18081`（可改）                                                                                               |
+| 权限         | 容器内以非 root 用户运行；`PUID`/`PGID` 默认 `auto`，按媒体目录属主自动识别，一般不用配                            |
+| 可选         | qBittorrent（自动触发）；Emby / Jellyfin（消费媒体库）                                                             |
 
 ## 快速开始（镜像部署）
 
@@ -55,15 +56,17 @@
 mkdir -p /你的/路径/media-ingest-data
 ```
 
-**2. 下载 docker-compose**（或者把下面折叠的内容复制成 `docker-compose.release.yml`）：
+**2. 创建 docker-compose**
+
+方法一（推荐，总是拿到仓库最新版）：
 
 ```bash
 mkdir -p /你的/路径/media-ingest && cd /你的/路径/media-ingest
-curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
+curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/main/work/docker-compose.release.yml
 ```
 
-<details>
-<summary>或者从 README 复制完整内容自行创建（点开）</summary>
+方法二：自行创建名为 `docker-compose.release.yml` 的文件，把下面整段内容（含文件头说明）复制进去；
+不熟悉 compose 写法的话不用手改，按步骤 3 建 `.env` 即可。
 
 ```yaml
 # =============================================================================
@@ -75,9 +78,10 @@ curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/
 #        mkdir -p /你的/路径/media-ingest-data
 #
 #   2. 保存本文件（也可以从仓库 README 复制内容自行创建）：
-#        https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/docker-compose.release.yml
+#        https://raw.githubusercontent.com/Taro-clo/media-ingest/main/work/docker-compose.release.yml
+#      （`main` 分支 = 仓库最新版；升级时重新下载本文件，再 docker compose pull，compose 与镜像一起更新）
 #
-#   3. 按需改下面的挂载目录（见 ✏️ 标记），然后启动：
+#   3. 按需设置挂载目录 / 数据目录 / 端口（见 ✏️ 标记与下面的 .env 示例），然后启动：
 #        docker compose -f docker-compose.release.yml up -d
 #      `docker compose -f docker-compose.release.yml ps` 出现 (healthy) 即成功；
 #      浏览器打开 http://<本机 IP>:18081 建管理员、建媒体库。
@@ -99,16 +103,16 @@ curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/v1.0.0/work/
 # ⚠️ MEDIA_ROOT 必须是宿主上**真实存在**的目录，否则 Docker 会以 root 新建空目录。
 # ⚠️ 数据卷（MLM_DATA_DIR）只要求可写，不要求和媒体同一文件系统。
 #
-# 版本：默认钉住 1.0.0；要跟随最新发布设 MLM_VERSION=latest。
+# 版本：不写死版本号，默认用 latest（跟随最新发布）；要钉住固定版本就设 MLM_VERSION=1.0.0。
 # 镜像在 GHCR（GitHub Container Registry），多架构（linux/amd64、linux/arm64）：
-#     ghcr.io/taro-clo/media-ingest:1.0.0
+#     ghcr.io/taro-clo/media-ingest:latest
 # =============================================================================
 
 name: media-ingest
 
 services:
   media-ingest:
-    image: "ghcr.io/taro-clo/media-ingest:${MLM_VERSION:-1.0.0}"
+    image: "ghcr.io/taro-clo/media-ingest:${MLM_VERSION:-latest}"
     container_name: media-ingest
 
     # 单进程运行：硬链接日志是"读-改-写整份"，多 worker 会互相覆盖。
@@ -168,44 +172,74 @@ services:
         max-file: "3"
 ```
 
-</details>
+> 上面内容与仓库文件 [`work/docker-compose.release.yml`](work/docker-compose.release.yml) 逐字一致，以仓库文件为准。
 
-> 折叠里的内容与仓库文件 `work/docker-compose.release.yml` 一致，以仓库文件为准。
-
-**3. 按需设置挂载目录**（只改一处）：在 compose 同目录建 `.env`（compose 会自动读取，只用于插值）：
+**3. 按需设置挂载目录、数据目录与端口**：在 compose 同目录建 `.env`（compose 会自动读取，仅用于 `${VAR}` 插值）。
+三项里只有第 ① 项**必须**改，另外两项默认就能用：
 
 ```bash
 cat > .env <<'EOF'
-# 必改：下载目录与媒体库的共同父目录（宿主上必须已存在，下载/媒体库都在它下面）
+# ① 必改：下载目录与媒体库的「共同父目录」（宿主上真实存在的绝对路径）
 MEDIA_ROOT=/你的/下载目录与媒体库的共同父目录
-# 可选：用第 1 步创建的目录（不写 = 本目录下的 ./data）
+# ② 建议改：容器数据目录 = 第 1 步创建的目录（不写 = compose 同目录的 ./data）
 MLM_DATA_DIR=/你的/路径/media-ingest-data
-# 可选：18081 被占用时改（宿主与容器端口同步跟随）
+# ③ 按需改：WebUI 端口（默认 18081；被占用时换一个，宿主与容器端口同步跟随）
 # PORT=18099
+# ④ 可选：钉住镜像版本（不写 = latest，跟随最新发布）
+# MLM_VERSION=1.0.0
 EOF
 ```
 
-也可以直接改 compose 里对应的默认值（`${MEDIA_ROOT:-…}`、`${MLM_DATA_DIR:-…}`），改的话同一变量涉及的几处要一起改。然后启动：
+**① 媒体挂载 `MEDIA_ROOT` —— 唯一必改项**
+
+- 填「下载目录」和「媒体库」的**共同父目录**。例：下载在 `/vol1/1000/Download`、媒体库在 `/vol1/1000/Library`，就填 `/vol1/1000`。
+- 必须是宿主上**已存在**的**绝对路径**。路径不存在时 Docker 会以 root 建一个空目录，程序随后会报源目录不存在 / 无法读写。
+- 容器内路径 = 宿主路径（compose 里左右两侧用同一个变量），所以填宿主真实路径，**不要**填 `/data`、`/media` 这类容器内的路径。
+- 下载目录与媒体库必须在**同一个挂载点**内（硬链接不能跨挂载，否则报 `Invalid cross-device link`）。不确定时在宿主上确认：
+  `df -T <下载目录> <媒体库目录>`（看是否同一设备）或 `findmnt -T <媒体目录>`（看挂载点）。
+- 首次建库会自动派生允许的源 / 目标根 `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`；你的目录名不是 `Download` / `Library` 时，首次启动后在 WebUI「设置」页改（或另设 `DEFAULT_SOURCE_ROOT` / `DEFAULT_TARGET_ROOT`，仅首次建库生效）。
+
+**② 容器数据目录 `MLM_DATA_DIR` —— 建议改**
+
+- 指向第 1 步创建的目录。里面是 `mlm.db`（全部配置、媒体库、处理器、任务记录）、`secret.key`、`config/`、`logs/`。
+- 不写就默认用 compose 同目录的 `./data`（能用，但重新下载 compose 或换目录时容易漏备份）。
+- 只要求**可写且持久化**，不要求和媒体同一文件系统；**这是唯一必须备份的东西**，不要放 `/tmp` 这类临时目录。
+- 建议放在媒体目录**之外**：避免被 Emby / Jellyfin 扫描，备份时也不会和媒体混在一起。
+
+**③ WebUI 端口 `PORT` —— 按需改**
+
+- 默认 `18081`，启动后访问 `http://<宿主 IP>:18081`。
+- 端口被占用（`docker compose up` 报 `port is already allocated`，或宿主 `ss -ltn | grep 18081` 有输出）时改一个空闲端口，例如 `PORT=18099`。
+- `ports` 映射与容器内 `PORT` 用同一个变量，改一处两边同步；访问地址随之变成 `http://<宿主 IP>:18099`。
+- 如果是带防火墙 / 安全组的服务器，记得放行该端口。
+
+> 不想用 `.env` 也可以：直接改 compose 里的默认值，或启动命令前加环境变量（`MEDIA_ROOT=/mnt/media docker compose -f docker-compose.release.yml up -d`）。
+> 直接改文件时，同一个变量在 compose 里出现**多处**（`environment.MEDIA_ROOT` 与 `volumes` 的宿主 / 容器两侧），要**一起改**，否则容器内外路径不一致。
+
+然后启动并确认：
 
 ```bash
+docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d
 docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) 即成功
 ```
 
 默认值（不建 `.env` 也能跑，但媒体目录会按 `/vol1/1000` 找）：
 
-| 项 | 默认 | 覆盖方式（`.env` 或 compose 默认值） |
-|---|---|---|
-| 镜像版本 | `1.0.0` | `MLM_VERSION=latest` |
-| 媒体共同父目录 | `/vol1/1000` | `MEDIA_ROOT=/你的/路径` |
-| 数据目录（`/data`） | compose 同目录的 `./data` | `MLM_DATA_DIR=/你的/路径/data` |
-| 运行身份 | `auto`（按媒体目录属主识别） | `PUID=1000 PGID=1000` |
-| 源 / 目标根 | `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仅首次建库播种） | `DEFAULT_SOURCE_ROOT=…` |
-| 端口 | `18081` | `PORT=18099` |
-| 路径映射 | 空 = 恒等 | 容器内路径 ≠ 宿主路径时才需要 `HOST_PATH_MAP` |
+| 项                  | 默认                                                              | 覆盖方式（`.env` 或 compose 默认值）          |
+| ------------------- | ----------------------------------------------------------------- | --------------------------------------------- |
+| 镜像版本            | `latest`（跟随最新发布）                                          | `MLM_VERSION=1.0.0`（钉住固定版本）           |
+| 媒体共同父目录      | `/vol1/1000`                                                      | `MEDIA_ROOT=/你的/路径`                       |
+| 数据目录（`/data`） | compose 同目录的 `./data`                                         | `MLM_DATA_DIR=/你的/路径/data`                |
+| 运行身份            | `auto`（按媒体目录属主识别）                                      | `PUID=1000 PGID=1000`                         |
+| 源 / 目标根         | `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仅首次建库播种） | `DEFAULT_SOURCE_ROOT=…`                       |
+| 端口                | `18081`                                                           | `PORT=18099`                                  |
+| 路径映射            | 空 = 恒等                                                         | 容器内路径 ≠ 宿主路径时才需要 `HOST_PATH_MAP` |
 
 - `MEDIA_ROOT` 必须是宿主上**已存在**的目录，且下载目录与媒体库都在它下面（硬链接的硬前提）。
-- 启动后浏览器打开 `http://<你的 IP>:18081`，按向导创建管理员，再新建第一个媒体库。
+- 镜像默认 `latest`：每次发布都会更新，重装 / 重建容器时可能拿到新版本；想钉住某次发布就在 `.env` 里写 `MLM_VERSION=1.0.0`（版本号见 [Releases](https://github.com/Taro-clo/media-ingest/releases) 与 [`work/CHANGELOG.md`](work/CHANGELOG.md)）。
+- 升级（compose 从 `main` 下载时）：重新执行步骤 2 方法一的下载命令，再 `docker compose -f docker-compose.release.yml pull && up -d`，compose 与镜像一起更新；数据目录原样保留。
+- 启动后浏览器打开 `http://<你的 IP>:18081`（改过 `PORT` 就用新端口），按向导创建管理员，再新建第一个媒体库。
 - 想从源码构建（改代码 / 访问不了 GHCR）：见下方「快速开始（从源码构建）」。
 
 > 失败排查、升级回滚与备份见 [`work/docs/guides/DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md)；
@@ -217,20 +251,27 @@ docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) �
 
 1. 把 `work/` 整个目录（或发布源码包解出的内容）放到 NAS，例如 `/vol1/1000/Docker/media-ingest`；
    确认 `.env` 里的 `MEDIA_ROOT`（下载目录与媒体库的共同父目录，默认 `/vol1/1000`）在宿主上**已存在**。
+
 2. 复制配置，只按需求改 `MEDIA_ROOT`（其余默认值都能用：`PUID/PGID=auto` 自动识别、数据目录 `./data`、源/目标根从 `MEDIA_ROOT` 派生）：
+
    ```bash
    cd /vol1/1000/Docker/media-ingest
    cp .env.example .env
    vi .env          # 通常只需改 MEDIA_ROOT
    ```
+
 3. 构建并启动（首次构建需要几分钟；数据目录默认建在部署目录下的 `./data`，想放别处就在 `.env` 里设 `MLM_DATA_DIR`）：
+
    ```bash
    docker compose up -d --build
    ```
+
 4. 等容器变健康：
+
    ```bash
    docker compose ps          # STATUS 列里要出现 (healthy)
    ```
+
 5. 浏览器打开 `http://<NAS 的 IP>:18081`，按向导创建管理员，然后新建第一个媒体库。
 
 > 逐条命令、预期输出的完整演练见 [`work/examples/nas-deploy.md`](work/examples/nas-deploy.md)；
@@ -251,21 +292,21 @@ docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) �
 
 ## 出问题时
 
-| 症状 | 先看 |
-|---|---|
-| 容器起不来 / 显示 `unhealthy` | [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §4.4.1、[`TROUBLESHOOTING.md`](work/docs/guides/TROUBLESHOOTING.md) |
-| 硬链接失败（`Invalid cross-device link`） | [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §2.1、§3 |
-| `Permission denied` / 属主问题 | [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §10 |
-| 下载完成但没触发入库 | [`USER_GUIDE.md`](work/docs/guides/USER_GUIDE.md) §9、[`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §5 |
-| 已确认的限制与不修项 | [`work/docs/meta/KNOWN_ISSUES.md`](work/docs/meta/KNOWN_ISSUES.md) |
+| 症状                                      | 先看                                                                                                                  |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 容器起不来 / 显示 `unhealthy`             | [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §4.4.1、[`TROUBLESHOOTING.md`](work/docs/guides/TROUBLESHOOTING.md) |
+| 硬链接失败（`Invalid cross-device link`） | [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §2.1、§3                                                            |
+| `Permission denied` / 属主问题            | [`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §10                                                                 |
+| 下载完成但没触发入库                      | [`USER_GUIDE.md`](work/docs/guides/USER_GUIDE.md) §9、[`DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md) §5            |
+| 已确认的限制与不修项                      | [`work/docs/meta/KNOWN_ISSUES.md`](work/docs/meta/KNOWN_ISSUES.md)                                                    |
 
 ## 文档导航
 
-| 读者 | 文档 |
-|---|---|
-| 使用 | [`work/docs/guides/`](work/docs/guides/)：`USER_GUIDE.md`（WebUI 使用）、`DEPLOYMENT.md`（部署 / 升级 / 备份）、`TROUBLESHOOTING.md`、`FAQ.md` |
+| 读者        | 文档                                                                                                                                                                                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 使用        | [`work/docs/guides/`](work/docs/guides/)：`USER_GUIDE.md`（WebUI 使用）、`DEPLOYMENT.md`（部署 / 升级 / 备份）、`TROUBLESHOOTING.md`、`FAQ.md`                                                                                                                                             |
 | 二开 / 维护 | [`work/docs/contracts/`](work/docs/contracts/)：`ARCHITECTURE.md`、`API.md`、`PROCESSORS.md`、`BASELINE.md`、`COMPATIBILITY.md`；[`work/docs/meta/`](work/docs/meta/)：`STRUCTURE.md`、`TEST-MAP.md`、`KNOWN_ISSUES.md`、`EVIDENCE.md`；[`work/scripts/README.md`](work/scripts/README.md) |
-| 版本与验收 | [`work/CHANGELOG.md`](work/CHANGELOG.md)、[`work/reports/`](work/reports/) |
+| 版本与验收  | [`work/CHANGELOG.md`](work/CHANGELOG.md)、[`work/reports/`](work/reports/)                                                                                                                                                                                                                 |
 
 全部文档索引与阅读顺序：[`work/docs/README.md`](work/docs/README.md)。
 

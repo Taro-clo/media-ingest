@@ -17,9 +17,12 @@
 
 - **镜像部署改成手动三步**：① 创建容器数据目录（`mkdir -p`，路径自选）→ ② 下载
   `work/docker-compose.release.yml`（或从 README 复制内容自行创建）→ ③ 在 compose 同目录的 `.env` 里
-  按需设置挂载目录（`MEDIA_ROOT` 必改；`MLM_DATA_DIR`、`PORT` 可选），然后
+  按需设置挂载目录 / 数据目录 / 端口（`MEDIA_ROOT` 必改；`MLM_DATA_DIR`、`PORT` 按需；`MLM_VERSION` 可选），然后
   `docker compose -f docker-compose.release.yml up -d`。compose 与文档用 ✏️ 标出要改的位置；
   **不再提供一键安装脚本**。
+- **镜像 tag 不写死版本号**：`docker-compose.release.yml` 的 `image:` 默认 `${MLM_VERSION:-latest}`
+  （跟随最新发布），安装文档与 compose 里的下载地址改指 `main` 分支（README / `DEPLOYMENT.md` 不再钉死
+  `v1.0.0`）；要固定某次发布就在 `.env` 里设 `MLM_VERSION=1.0.0`。
 - **运行身份默认 `auto`**：`docker/entrypoint.sh` 按 `MEDIA_ROOT`（其次数据目录）的属主自动识别 `PUID`/`PGID`，
   不必先去宿主 `id`；显式传数字时行为不变，识别失败回退 `1000:1001` 并打 WARN。`docker/Dockerfile` 的默认 ENV
   同步改为 `auto`（`docker run` 直接跑也能自适应）。

@@ -501,8 +501,8 @@ def check(cond, label):
     else:
         FAIL += 1; print("  [FAIL] " + label)
 
-check(str(s.get("image")) == "ghcr.io/taro-clo/media-ingest:1.0.0",
-      "release 镜像默认钉住 ghcr.io/taro-clo/media-ingest:1.0.0（实际 %r）" % (s.get("image"),))
+check(str(s.get("image")) == "ghcr.io/taro-clo/media-ingest:latest",
+      "release 镜像默认跟随最新发布 ghcr.io/taro-clo/media-ingest:latest（实际 %r）" % (s.get("image"),))
 check("build" not in s, "release compose 不含 build（纯拉取，无需源码/本地构建）")
 check(s.get("container_name") == "media-ingest", "container_name = media-ingest")
 check("env_file" not in s, "release compose 不依赖 .env（环境变量全部在 environment 里自带默认）")
@@ -559,6 +559,20 @@ PYEOF
         ko "以下文件又引用了已取消的一键脚本 deploy.sh：$onecmd_hits"
     else
         ok "发布 compose 与安装文档不再引用一键脚本（用户侧是手动三步）"
+    fi
+
+    # 回归护栏：安装资产里的 compose 下载地址不得再钉死版本 tag（统一从 main 分支取最新）。
+    pin_hits=""
+    for f in docker-compose.release.yml "$REPO/../README.md" "$REPO/docs/guides/DEPLOYMENT.md"; do
+        [ -f "$f" ] || continue
+        if LC_ALL=C grep -q 'raw.githubusercontent.com/Taro-clo/media-ingest/v[0-9]' "$f"; then
+            pin_hits="$pin_hits $f"
+        fi
+    done
+    if [ -n "$pin_hits" ]; then
+        ko "以下文件的 compose 下载地址又钉死了版本 tag（应改用 main 分支取最新）：$pin_hits"
+    else
+        ok "发布 compose 与安装文档的下载地址指向 main 分支（不钉死版本）"
     fi
 
 
