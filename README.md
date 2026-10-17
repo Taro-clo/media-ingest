@@ -50,22 +50,22 @@
 
 不需要克隆源码、不需要本机构建。三步走（下面的示例路径都换成你自己的）：
 
-**1. 创建容器数据存储目录**（`mlm.db`、日志、`secret.key`、`config` 都写在这里；位置随意，示例仅供参考）：
+**1. 创建容器数据存储目录**（`mlm.db`、日志、`secret.key`、`config` 默认写在该目录下的 `data/`；位置随意，示例仅供参考）：
 
 ```bash
-mkdir -p /你的/路径/media-ingest-data
+mkdir -p /你的/路径/media-ingest
 ```
 
-**2. 创建 docker-compose**
+**2. 创建 docker-compose**（放在上面建好的目录里）
 
 方法一：执行命令从仓库拉取
 
 ```bash
-mkdir -p /你的/路径/media-ingest && cd /你的/路径/media-ingest
+cd /你的/路径/media-ingest
 curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/main/work/docker-compose.release.yml
 ```
 
-方法二：自行创建名为 `docker-compose.release.yml` 的文件，把下面整段内容复制进去
+方法二：自行创建名为 `docker-compose.release.yml` 的文件（同样放在这个目录里），把下面整段内容复制进去
 
 ```yaml
 name: media-ingest
@@ -172,7 +172,7 @@ x-port: &port "18081"
 
 **② 容器数据目录 `x-data-dir` —— 建议改**
 
-- 指向第 1 步创建的目录。里面是 `mlm.db`（全部配置、媒体库、处理器、任务记录）、`secret.key`、`config/`、`logs/`。
+- 指向第 1 步创建的目录（或它下面的 `data/`，默认是后者）。里面是 `mlm.db`（全部配置、媒体库、处理器、任务记录）、`secret.key`、`config/`、`logs/`。
 - 不写就默认用 compose 同目录的 `./data`（能用，但重新下载 compose 或换目录时容易漏备份）。
 - 只要求**可写且持久化**，不要求和媒体同一文件系统；**这是唯一必须备份的东西**，不要放 `/tmp` 这类临时目录。
 - 建议放在媒体目录**之外**：避免被 Emby / Jellyfin 扫描，备份时也不会和媒体混在一起。
@@ -184,7 +184,7 @@ x-port: &port "18081"
 - `ports` 映射与容器内 `PORT` 用同一个锚点，改一处两边同步；访问地址随之变成 `http://<宿主 IP>:18099`。
 - 如果是带防火墙 / 安全组的服务器，记得放行该端口。
 
-> 不想改本文件也可以：在 compose 同目录建 `.env`（可选，compose 自动读取）写 `MEDIA_ROOT=/你的路径`、`MLM_DATA_DIR=/你的路径/data`、`PORT=18099`，或启动命令前加同名环境变量（`MEDIA_ROOT=/mnt/media docker compose -f docker-compose.release.yml up -d`）——两者都会覆盖锚点里的默认值，且所有引用一起生效。
+> 不想改本文件也可以：在 compose 同目录建 `.env`（可选，compose 自动读取）写 `MEDIA_ROOT=/你的路径`、`MLM_DATA_DIR=/你的/路径/media-ingest/data`、`PORT=18099`，或启动命令前加同名环境变量（`MEDIA_ROOT=/mnt/media docker compose -f docker-compose.release.yml up -d`）——两者都会覆盖锚点里的默认值，且所有引用一起生效。
 
 然后启动并确认：
 
@@ -196,15 +196,15 @@ docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) �
 
 默认值（不改文件、不建 `.env` 也能跑，但媒体目录会按 `/vol1/1000` 找）：
 
-| 项                  | 默认                                       | 改法（改 compose 锚点，或设同名环境变量）         |
-| ------------------- | ------------------------------------------ | ------------------------------------------------- |
-| 镜像版本            | `latest`（跟随最新发布）                   | `MLM_VERSION=1.0.0`（钉住固定版本）               |
-| 媒体共同父目录      | `/vol1/1000`                               | `x-media-root`（或 `MEDIA_ROOT=/你的/路径`）      |
-| 数据目录（`/data`） | compose 同目录的 `./data`                  | `x-data-dir`（或 `MLM_DATA_DIR=/你的/路径/data`） |
-| 运行身份            | `auto`（按媒体目录属主识别）               | `PUID=1000 PGID=1000`                             |
-| 源 / 目标根         | 由 `MEDIA_ROOT` 自动派生（仅首次建库播种） | 一般不用设；特殊值用 `DEFAULT_SOURCE_ROOT=…`      |
-| 端口                | `18081`                                    | `x-port`（或 `PORT=18099`）                       |
-| 路径映射            | 空 = 恒等                                  | 容器内路径 ≠ 宿主路径时才需要 `HOST_PATH_MAP`     |
+| 项                  | 默认                                       | 改法（改 compose 锚点，或设同名环境变量）                      |
+| ------------------- | ------------------------------------------ | -------------------------------------------------------------- |
+| 镜像版本            | `latest`（跟随最新发布）                   | `MLM_VERSION=1.0.0`（钉住固定版本）                            |
+| 媒体共同父目录      | `/vol1/1000`                               | `x-media-root`（或 `MEDIA_ROOT=/你的/路径`）                   |
+| 数据目录（`/data`） | compose 同目录的 `./data`                  | `x-data-dir`（或 `MLM_DATA_DIR=/你的/路径/media-ingest/data`） |
+| 运行身份            | `auto`（按媒体目录属主识别）               | `PUID=1000 PGID=1000`                                          |
+| 源 / 目标根         | 由 `MEDIA_ROOT` 自动派生（仅首次建库播种） | 一般不用设；特殊值用 `DEFAULT_SOURCE_ROOT=…`                   |
+| 端口                | `18081`                                    | `x-port`（或 `PORT=18099`）                                    |
+| 路径映射            | 空 = 恒等                                  | 容器内路径 ≠ 宿主路径时才需要 `HOST_PATH_MAP`                  |
 
 - `MEDIA_ROOT` 必须是宿主上**已存在**的目录，且下载目录与媒体库都在它下面（硬链接的硬前提）。
 - 镜像默认 `latest`：每次发布都会更新，重装 / 重建容器时可能拿到新版本；想钉住某次发布就设 `MLM_VERSION=1.0.0`（改锚点、写 `.env` 或命令前加变量都行；版本号见 [Releases](https://github.com/Taro-clo/media-ingest/releases) 与 [`work/CHANGELOG.md`](work/CHANGELOG.md)）。
