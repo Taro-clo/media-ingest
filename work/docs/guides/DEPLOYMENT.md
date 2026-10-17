@@ -357,7 +357,7 @@ docker exec media-ingest /usr/local/bin/mlm-healthcheck
 | `warnings` 非空 | 通常是文件系统编码不是 UTF-8 | 按 `details` 设 `LANG=C.UTF-8` / `PYTHONUTF8=1`（§4.2） |
 
 > 📌 v2 删除了 `downloads_readable` / `library_writable` 两项（它们只探「允许的根目录」白名单，白名单机制已整体删除）。
-> 源/目标目录是否**同挂载**改在**建库/改库时**校验：跨挂载直接 `422`，运行期失败体现在任务的 `errors[]` / `link_failed` 里；
+> 源/目标目录是否**同挂载**改在**建库/改库时**校验：跨挂载直接 `400`，运行期失败体现在任务的 `errors[]` / `link_failed` 里；
 > 只读参考见 `/api/system/info` 的 `same_filesystem`（§6.5）。
 
 > **两条判据的区别**：`/api/system/health` **永远 200**，健康与否看响应体的 `status` 与 `checks`；`healthcheck.sh` 解析响应体，`degraded` 会让容器真的显示 `(unhealthy)` 并在 stderr 打印 `[失败]` / `[缺失]` 行。
@@ -598,7 +598,7 @@ MLM_VERSION=1.0.1 docker compose -f docker-compose.release.yml up -d
 
 - 若库的路径还是更早版本的容器路径（`/downloads/...`、`/library/...`），在单挂载形态下这些路径**不存在** ——
   编辑该库改成宿主真实路径（容器路径 = 宿主路径），保存时会自动校验「同一挂载」；
-- 跨挂载的库在**保存时**就会被拒绝（`422`，文案带「不在同一个挂载」），不会再静默失败。
+- 跨挂载的库在**保存时**就会被拒绝（`400`，文案以「跨挂载错误」开头），不会再静默失败。
 
 **30 秒确认【NAS 宿主】**
 

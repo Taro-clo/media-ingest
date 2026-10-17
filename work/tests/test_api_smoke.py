@@ -328,19 +328,20 @@ def test_invalid_libraries_are_rejected(api_client, api_login, tmp_path, source_
     assert same.status_code == 400, same.text
     assert "不能相同" in same.json()["detail"]
 
+    # v2 起没有「允许的根路径」白名单：目标目录落在任何位置都合法。
+    # 唯一的路径闸门是「不能相同 / 不能互相包含 / 必须在同一个文件系统」（见下一条用例）。
     outside = api_client.post(
         "/api/libraries",
         json={
-            "name": "越界",
+            "name": "库外目录",
             "type": "Bangumi",
             "processor_id": "bangumi",
             "source_dir": str(source_dir),
             "target_dir": str(tmp_path / "outside"),
         },
     )
-    assert outside.status_code == 400, outside.text
-    detail = outside.json()["detail"]
-    assert "不在允许的根路径内" in detail and "允许" in detail, detail
+    assert outside.status_code == 201, outside.text
+    assert H.same_path(outside.json()["target_dir"], tmp_path / "outside")
 
     custom = api_client.post(
         "/api/libraries",
@@ -357,6 +358,58 @@ def test_invalid_libraries_are_rejected(api_client, api_login, tmp_path, source_
     assert any(
         "自定义库选择了重命名处理器" in text for text in custom.json()["warnings"]
     ), custom.json()["warnings"]
+
+
+def test_library_create_and_update_reject_cross_mount(
+    api_client, api_login, source_dir, target_dir, monkeypatch
+):
+    """v2 在**建库/改库时**校验源与目标是否同一个挂载。
+
+    真实环境里把源与目标放到两个 bind 挂载（或两块盘）上，`os.link` 会直接返回
+    EXDEV，所以写库前就用 `paths.check_same_mount()` 拦下（`False` 是可靠负判据）。
+    这里伪造 `mount_id_for` 让两个目录“分属不同挂载”，断言 400 与冻结文案
+    「跨挂载错误：…」，不依赖 CI 机器真的挂两个挂载点。
+    """
+    api_login(api_client)
+
+    from app import paths as paths_module
+
+    def fake_mount_id(path):
+        text = str(path).replace("\\", "/")
+        return ("1", "/downloads") if "/downloads" in text else ("2", "/library")
+
+    monkeypatch.setattr(paths_module, "mount_id_for", fake_mount_id)
+
+    rejected = api_client.post(
+        "/api/libraries",
+        json={
+            "name": "跨挂载",
+            "type": "Bangumi",
+            "processor_id": "bangumi",
+            "source_dir": str(source_dir),
+            "target_dir": str(target_dir),
+        },
+    )
+    assert rejected.status_code == 400, rejected.text
+    detail = rejected.json()["detail"]
+    assert "跨挂载错误" in detail and "EXDEV" in detail, detail
+
+    monkeypatch.undo()
+    library = _create_library(api_client, source_dir, target_dir)
+
+    monkeypatch.setattr(paths_module, "mount_id_for", fake_mount_id)
+    updated = api_client.put(
+        f"/api/libraries/{library['id']}",
+        json={
+            "name": "冒烟番剧",
+            "type": "Bangumi",
+            "processor_id": "bangumi",
+            "source_dir": str(source_dir),
+            "target_dir": str(target_dir),
+        },
+    )
+    assert updated.status_code == 400, updated.text
+    assert "跨挂载错误" in updated.json()["detail"]
 
 
 def test_library_delete_requires_confirm_and_keeps_hardlinks(

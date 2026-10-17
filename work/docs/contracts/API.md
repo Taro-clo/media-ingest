@@ -260,10 +260,10 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 - 三个内置处理器语义不变 —— 只是"选择"从"按类型限制"变成"按 id 自由选"；
 - 想要新的命名逻辑不需要写代码：新建一个处理器即可（§5.7），媒体库指向它。
 
-**其他硬性校验**（违反一律 `422` 中文错误）:
+**其他硬性校验**（违反时：字段级错误 `422`，路径结构冲突 `400`）:
 
-1. `source_dir` 与 `target_dir` 必须**在同一个挂载**上（`paths.check_cross_mounts()`，跨挂载 ⇒ `422`）；
-2. `source_dir` 与 `target_dir` **不得相同**，也**不得互相包含**；
+1. `source_dir` 与 `target_dir` 必须**在同一个挂载**上（`paths.check_same_mount()`，不同挂载 ⇒ `400`；`False` 是可靠负判据，读不到 mountinfo 时判不了就放行）；
+2. `source_dir` 与 `target_dir` **不得相同**，也**不得互相包含**（⇒ `400`）；
 3. `processor_id` 必须存在（不存在 ⇒ `422`）；
 4. `log_file` 若提供，必须只是文件名、以 `.log` 结尾，且**不得与其它库已占用的名字撞车**（字段 `log_file`）；
 5. `rule_override` 若提供，必须能**独立读懂**（形状 / 正则能否编译 / 模板变量认不认识），而且**合并到处理器规则之后必须仍然合法**（跨层冲突 ⇒ `422`，例如处理器是 `file_scope: title` 而库级写了 `accept_dirs`）。错误字段名带 `rule_override.` 前缀。
@@ -342,7 +342,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `limit` / `offset` | 服务端实际生效的分页参数（`limit` 会被上限截断） |
 
 > 分页信封是统一约定：`GET /api/libraries` 与 `GET /api/tasks` 都是这个形状，而 `/api/stats/overview.recent` 这类**非分页集合**仍是裸数组。
-> 跨挂载（源与目标不在**同一个挂载**，`link()` 必返 `EXDEV`）**不在建库时校验**，而是由「预检」（§3.8）给出结论；跑任务时也不硬拦（只写 `Task.result.warnings[]`）。原理见 [`docs/contracts/COMPATIBILITY.md`](COMPATIBILITY.md) 的「文件系统兼容性」一节。
+> 跨挂载（源与目标不在**同一个挂载**，`link()` 必返 `EXDEV`）在**建库/改库时**直接拦下（`400`，「跨挂载错误：…」）；「预检」（§3.8）另给完整结论；跑任务时不再硬拦（只写 `Task.result.warnings[]`）。原理见 [`docs/contracts/COMPATIBILITY.md`](COMPATIBILITY.md) 的「文件系统兼容性」一节。
 
 ### 3.4 `POST /api/libraries` — 新建媒体库
 
@@ -464,7 +464,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 > - **`errors[]`（同时 `ok=false`）**：① 源与目标相同或互相包含；② **源目录不存在或不是目录**；③ `same_filesystem is false`（此时**同一条判据文案进 `errors[]`**）；④ `processor_ok is false`（处理器已不存在）。
 > - **只 `warnings[]`（`ok` 仍为 `true`）**：① 目标目录当前不存在（跑任务时由建链阶段 `os.makedirs` 建）；② `same_filesystem is null` ⇒ `无法判定源/目标之间能否创建硬链接：` + 判据文案；③ `same_filesystem is true` 且判据文案非空（仅据挂载 ID / `st_dev` 的**未实证**结论）。
 > - **`probe`**：只有 `?probe=true`（默认）时才非 `null`，形状 `{ok, note}`，`ok` 与 `same_filesystem` 同为三态 `bool | null`。
-> - **建库永不因跨挂载被拦**：`POST /api/libraries` 与 `PUT /api/libraries/{id}` **不做**这个判据。跨挂载只影响预检结论与运行期 `warnings[]`，不阻断建库。
+> - **建库/改库会因跨挂载被拦**：`POST /api/libraries` 与 `PUT /api/libraries/{id}` 在写库前调用 `paths.check_same_mount()`，不同挂载 ⇒ `400`（「跨挂载错误：…」）。预检（§3.8）与运行期 `warnings[]` 仍保留同族判据。
 
 > 📌 **判据文案**（`probe.note` / `errors[]` / `warnings[]` 里的同一族文案）—— 下面 `{}` 是插值，其余照抄；测试与前端可按这些前缀匹配：
 
@@ -1249,7 +1249,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `data_dir` | `<DATA_DIR>` 可写（**真的建一个临时文件再删掉**，不是看权限位） | 检查数据卷挂载与属主（PUID/PGID） |
 
 > 📌 v2 起**不再有** `downloads_readable` / `library_writable` 两项：它们只探「允许的源/目标根目录」白名单的
-> 第一个根，而白名单机制已整体删除。源/目标目录是否**同挂载**改由**建库/改库时**校验（§3.2，跨挂载直接 `422`），
+> 第一个根，而白名单机制已整体删除。源/目标目录是否**同挂载**改由**建库/改库时**校验（§3.2，跨挂载直接 `400`），
 > 运行期的问题体现在任务的 `warnings[]` / `link_failed` 里；`/api/system/info` 的 `same_filesystem` 仍是只读参考。
 
 > 这个接口**刻意永不抛异常**：数据库挂掉时它也正常返回 `200 + degraded`，而不是 `500` —— 探测脚本只认 HTTP 状态码与 `status` 字段。

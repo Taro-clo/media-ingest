@@ -47,7 +47,7 @@ curl -s http://127.0.0.1:18081/api/system/health | python3 -m json.tool
 `checks` 固定**四项**：`db` / `data_dir` / `config` / `processors`。哪一项是 `false`，`details` 里就有对应的中文原因，直接对号入座（见[场景 2](#2-启动即-degraded健康检查四项里有-false)）。
 
 > ⚠️ 源/目标目录是否**同一挂载**不再由健康检查判（旧版的 `downloads_readable` / `library_writable` 随「允许的根目录」白名单一起删除）：
-> 建库/改库时校验，跨挂载直接 `422`；运行期问题看任务 `errors[]` / `link_failed` 与 `/api/system/info` 的 `same_filesystem`。
+> 建库/改库时校验，跨挂载直接 `400`；运行期问题看任务 `errors[]` / `link_failed` 与 `/api/system/info` 的 `same_filesystem`。
 > 升级后媒体库路径仍是旧容器路径的排查见[场景 22](#22-升级到单挂载形态后容器-unhealthy旧的允许根目录还在)。
 
 > ⚠️ **`status` 为 `degraded` 有两种来源**：① 四项里有 `false`；② 四项全 `true`，但 `warnings` 非空 —— 目前唯一的 warning 来源是**容器内文件系统编码不是 UTF-8**（消息里会点名 `LANG` / `PYTHONUTF8` / `PYTHONIOENCODING`），此时中文文件夹名会在读取日志时抛 `UnicodeDecodeError`。健康判据只有一条：`status == "ok"`。

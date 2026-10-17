@@ -312,6 +312,12 @@ def create_library(
     if not ok_mounts:
         raise bad_request(mount_error)
 
+    # 建库/改库时就判「是否同一个挂载」：``False`` 是可靠负判据（跨挂载 link() 必 EXDEV），
+    # ``None``（读不到 /proc/self/mountinfo，如非 Linux 开发机）只放行、留给预检与运行期。
+    same_mount, mount_note = paths.check_same_mount(source_dir, target_dir)
+    if same_mount is False:
+        raise bad_request(mount_note)
+
     moment = now_iso()
     with conn:
         cursor = conn.execute(
@@ -396,6 +402,12 @@ def update_library(
     ok_mounts, mount_error = paths.check_cross_mounts(source_dir, target_dir)
     if not ok_mounts:
         raise bad_request(mount_error)
+
+    # 建库/改库时就判「是否同一个挂载」：``False`` 是可靠负判据（跨挂载 link() 必 EXDEV），
+    # ``None``（读不到 /proc/self/mountinfo，如非 Linux 开发机）只放行、留给预检与运行期。
+    same_mount, mount_note = paths.check_same_mount(source_dir, target_dir)
+    if same_mount is False:
+        raise bad_request(mount_note)
 
     with conn:
         conn.execute(

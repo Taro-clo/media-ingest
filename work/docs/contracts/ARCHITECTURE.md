@@ -211,8 +211,8 @@ CREATE UNIQUE INDEX idx_link_records_library_folder ON link_records(library_id, 
    `?probe=`（默认 `true`）控制是否做实证探针；`same_filesystem` 是 `bool | None`。落点：`false`
    （**已证实**建不出）⇒ `ok=false` + `errors[]`；`null` ⇒ **只**进 `warnings[]`；`true` 但仅据 mount ID /
    `st_dev` 预筛 ⇒ 也进 `warnings[]`。故 **`warnings` 非空 ≠ 有问题**。`POST /api/libraries` /
-   `PUT /api/libraries/{id}` **不做**此判据（跨挂载**不阻断建库**）；`/run` 时判据为 `false` 也只写
-   `warnings[]` 并继续尝试。
+   `PUT /api/libraries/{id}` 在写库前调用 `check_cross_mounts()` + `check_same_mount()`
+   （不同挂载 ⇒ `400`）；`/run` 时判据为 `false` 也只写 `warnings[]` 并继续尝试。
 9. **`/api/hooks/*` 的参数只从 URL 查询串或 urlencoded 表单体读取，JSON 请求体被静默忽略**；
    **查询串优先级高于表单体**。用 `-H 'Content-Type: application/json' -d '{…}'` 会得到 `torrent.name`
    为空、命中 0 个库 —— 最难查的静默失败，文档与排障必须点名。
