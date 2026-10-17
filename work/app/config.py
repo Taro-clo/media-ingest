@@ -52,21 +52,35 @@ DEFAULT_HOST_PATH_MAP: dict[str, str] = {}
 #: - 已存在的 DB **一律不动**、迁移**不覆盖** —— 运行时真源永远是那两个 DB 设置项，仍可 PUT；
 #: - 它们**不是**新建库表单的默认值，也不是运行时开关，别把它当 env 旋钮用。
 #:
-#: 为什么必须由 env 驱动（单挂载形态）：compose 用「共同父目录挂一条 bind、容器路径 =
+#: 为什么必须跟随挂载形态（单挂载）：compose 用「共同父目录挂一条 bind、容器路径 =
 #: 宿主路径」（MEDIA_ROOT）之后，容器里**不再有** ``/downloads`` 与 ``/library`` 这两个路径；
 #: 而 ``/api/system/health`` 的 ``downloads_readable`` / ``library_writable`` 两项正是拿这两个
 #: 设置项去探的（``app/routers/system.py``）——默认值若仍指向不存在的旧路径，容器一开箱就
-#: unhealthy。devops 把这两个 env 名写进 ``.env.example``。
-#: 缺省值取**整个下载树** ``/vol1/1000/Download``（而不是它下面的 ``qbittorrent`` 子目录）：
+#: unhealthy。
+#: 缺省值取**整个下载树** ``<MEDIA_ROOT>/Download``（而不是它下面的 ``qbittorrent`` 子目录）：
 #: 单挂载形态下容器看到的就是宿主真实路径，把白名单放宽到整棵树，用户才能给
 #: ``Download/<任意子目录>`` 建库（qBittorrent 换过保存目录、或手工放进去的剧集都不用再改配置）。
 #: 想收紧就在 WebUI「设置」页把这一项改回具体子目录——运行时真源始终是 DB 设置项。
+#:
+#: **未显式给这一项时从 ``MEDIA_ROOT`` 派生**（``<MEDIA_ROOT>/Download`` /
+#: ``<MEDIA_ROOT>/Library``），这样部署方只需要提供媒体共同父目录一处，不必再记两个 env 名。
+#: compose 默认不再传这两个变量（见 ``docker-compose.release.yml`` 的锚点段）；
+#: 显式传值仍然优先，``MEDIA_ROOT`` 也没给时退回历史默认 ``/vol1/1000``。
+_MEDIA_ROOT_FALLBACK = "/vol1/1000"
+
+
+def _media_root() -> str:
+    """``MEDIA_ROOT``：媒体共同父目录（单挂载形态下容器路径 = 宿主路径）。"""
+    return (_env("MEDIA_ROOT") or _MEDIA_ROOT_FALLBACK).rstrip("/")
+
+
 DEFAULT_SOURCE_ROOT: str = (
-    _env("DEFAULT_SOURCE_ROOT", "/vol1/1000/Download")
-    or "/vol1/1000/Download"
+    _env("DEFAULT_SOURCE_ROOT", _media_root() + "/Download")
+    or _media_root() + "/Download"
 )
 DEFAULT_TARGET_ROOT: str = (
-    _env("DEFAULT_TARGET_ROOT", "/vol1/1000/Library") or "/vol1/1000/Library"
+    _env("DEFAULT_TARGET_ROOT", _media_root() + "/Library")
+    or _media_root() + "/Library"
 )
 
 

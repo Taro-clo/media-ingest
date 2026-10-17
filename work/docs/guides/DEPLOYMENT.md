@@ -11,10 +11,10 @@
 | 占位符 | 文中示例值 | 换成什么 / 在哪改 |
 |---|---|---|
 | `<NAS_IP>` | `192.168.1.100` | 你 NAS 的局域网地址 |
-| `<MEDIA_ROOT>` | `/vol1/1000` | 下载源与媒体库的**共同父目录**（宿主路径）；`.env` 的 `MEDIA_ROOT` |
+| `<MEDIA_ROOT>` | `/vol1/1000` | 下载源与媒体库的**共同父目录**（宿主路径）；compose 的 `x-media-root` 锚点（或环境变量 `MEDIA_ROOT`） |
 | `<下载根>` | `<MEDIA_ROOT>/Download/qbittorrent` | qBittorrent 下载根（源） |
 | `<媒体库根>` | `<MEDIA_ROOT>/Library` | 媒体库根（目标） |
-| `<数据卷>` | `<项目目录>/data` | 数据目录的**宿主**路径；默认 = compose 同目录的 `./data`，要换位置设 `.env` 的 `MLM_DATA_DIR`（§2.3） |
+| `<数据卷>` | `<项目目录>/data` | 数据目录的**宿主**路径；默认 = compose 同目录的 `./data`，要换位置改 compose 的 `x-data-dir` 锚点（或设环境变量 `MLM_DATA_DIR`）（§2.3） |
 | `<项目目录>` | `/vol1/1000/Docker/media-ingest` | compose 项目目录（放 `docker-compose.yml` 处） |
 | `<PUID>:<PGID>` | `auto`（识别为 `1000:1001` 之类） | 容器运行身份；默认 `auto` = 按 `<MEDIA_ROOT>` 属主自动识别（§1.3、§10） |
 | `<HOOK_TOKEN>` | 设置页那串 | 回调 token，只在设置页拿（§5.1） |
@@ -68,7 +68,7 @@ sudo -u '#1000' test -w <媒体库根> && echo '目标目录可写 OK'
 `无法从媒体挂载/数据目录识别属主` 的 WARN（说明挂载还没就绪/属主是 root）。
 显式写了数字就完全按数字来，不再自动识别（见 §10）。
 
-换端口只改 `.env` 的 `PORT`（宿主与容器共用同一个表达式，§8.1）。没有 `sudo` 就用 `stat -c '%A %U %G %n' <路径>` 看权限位，再按 §10 调整。
+换端口只改 compose 文件头的 `x-port` 锚点（或设环境变量 `PORT`）；宿主与容器端口引用同一个锚点，改一处两边同步（§8.1）。没有 `sudo` 就用 `stat -c '%A %U %G %n' <路径>` 看权限位，再按 §10 调整。
 
 ### 1.4 qBittorrent 容器（建议）
 
@@ -86,8 +86,25 @@ docker inspect qbittorrent --format '{{range .Mounts}}{{.Source}} -> {{.Destinat
 
 | # | 宿主路径 | 容器路径 | 模式 | 用途 |
 |---|---|---|---|---|
-| 1 | `${MEDIA_ROOT:-/vol1/1000}` | 与宿主**完全一致** | `rw` | **单一共同父挂载**：源与目标都在它下面 ⇒ 天然同挂载，硬链接成立的前提（§2.1） |
-| 2 | `${MLM_DATA_DIR:-./data}` | `/data` | `rw` | 数据库、配置、日志、密钥（§2.3） |
+| 1 | compose 锚点 `x-media-root`（默认 `/vol1/1000`，可用 `MEDIA_ROOT` 覆盖） | 与宿主**完全一致** | `rw` | **单一共同父挂载**：源与目标都在它下面 ⇒ 天然同挂载，硬链接成立的前提（§2.1） |
+| 2 | compose 锚点 `x-data-dir`（默认 `./data`，可用 `MLM_DATA_DIR` 覆盖） | `/data` | `rw` | 数据库、配置、日志、密钥（§2.3） |
+
+镜像部署（`docker-compose.release.yml`）用 YAML 锚点写在文件头，environment / ports / volumes 全部引用同一处：
+
+```yaml
+x-media-root: &media-root "${MEDIA_ROOT:-/vol1/1000}"
+x-data-dir: &data-dir "${MLM_DATA_DIR:-./data}"
+# …
+    volumes:
+      - type: bind
+        source: *media-root
+        target: *media-root
+      - type: bind
+        source: *data-dir
+        target: /data
+```
+
+源码构建（`work/docker-compose.yml`）用等价的短语法，改的是同名变量：
 
 ```yaml
     volumes:
@@ -107,7 +124,7 @@ docker inspect qbittorrent --format '{{range .Mounts}}{{.Source}} -> {{.Destinat
 
 `rw` 必需（要建目录、建硬链接、**原地改名**）；媒体库根是**媒体库设置**里的参数（如 `<媒体库根>/Bangumi`），容器内不必非叫 `Library`。两者都由镜像内的应用代码执行（`app/processors/hardlink.py`、`app/processors/engine.py`），硬链接阶段的可观察输出是冻结契约（[`../contracts/BASELINE.md`](../contracts/BASELINE.md) §1，锁定位 `tests/test_hardlink_native.py`）。
 
-### 2.3 数据卷：默认部署目录下的 `./data`，想放别处就设 `MLM_DATA_DIR`
+### 2.3 数据卷：默认部署目录下的 `./data`，想放别处就改 `x-data-dir`（或设 `MLM_DATA_DIR`）
 
 | 容器内 | 内容 |
 |---|---|
@@ -117,11 +134,11 @@ docker inspect qbittorrent --format '{{range .Mounts}}{{.Source}} -> {{.Destinat
 | `/data/logs/hard_links.log` | 硬链接台账（逐字格式见 §2.6 与 [`../contracts/BASELINE.md`](../contracts/BASELINE.md) B6） |
 | `/data/logs/<log_file>` | **每个媒体库一条**重命名日志（`json_cache`，默认 `<slug>cache.log`） |
 
-**默认数据卷 = compose 文件同目录的 `./data`**（compose 里的 `"${MLM_DATA_DIR:-./data}:/data"`），
+**默认数据卷 = compose 文件同目录的 `./data`**（镜像部署由文件头 `x-data-dir: &data-dir "${MLM_DATA_DIR:-./data}"` 定义，源码构建是 `"${MLM_DATA_DIR:-./data}:/data"`），
 即部署目录下的 `data/`。不用配置、也不会在你没指定的地方（比如盘根）创建目录。
 
-> 💡 **想放别处**：在 `.env` 里加一行 `MLM_DATA_DIR=/你的路径/data`（compose 读它做插值），或用环境变量 `MLM_DATA_DIR=…` 覆盖。
-> ⚠️ **`MLM_DATA_DIR` 在 `.env.example` 里只以注释形式示例** —— 它是**可选**变量，不写就用上面的默认值。
+> 💡 **想放别处**：改 compose 文件头的 `x-data-dir` 一行（推荐，改一处即生效），或在 `.env` 里加 `MLM_DATA_DIR=/你的路径/data`，或命令行前缀 `MLM_DATA_DIR=…` 覆盖。
+> ⚠️ **`MLM_DATA_DIR` 是可选变量**：不写就用上面的默认值。
 > 📌 **备份 / 迁移 / 换机只需要搬这一个目录**（§7）。
 
 **为什么必须是宿主目录**：容器是一次性的（`down`、重装、升级都会丢掉容器），状态放容器里等于没保存。
@@ -363,7 +380,7 @@ media-ingest  media-ingest:latest  "/usr/local/bin/…"  Up 45 seconds (healthy)
 ### 4.6 用预构建镜像安装（不构建，推荐）
 
 镜像由 GitHub Actions 构建，多架构（`linux/amd64`、`linux/arm64`，按宿主架构自动选择），推送到 GHCR：
-`ghcr.io/taro-clo/media-ingest:latest`（默认跟随最新发布；要钉住版本在 `.env` 里设
+`ghcr.io/taro-clo/media-ingest:latest`（默认跟随最新发布；要钉住版本设
 `MLM_VERSION=1.0.0`）。**不需要源码、不需要本机 Docker 构建。**
 
 全程三步，需要你自己决定的只有三处：**数据目录放哪**、**下载目录与媒体库的共同父目录是什么**、
@@ -375,7 +392,7 @@ media-ingest  media-ingest:latest  "/usr/local/bin/…"  Up 45 seconds (healthy)
 mkdir -p <数据卷>
 ```
 
-> 这个目录只要求**可写且持久化**，不要求与媒体同一文件系统；下文用 `MLM_DATA_DIR` 指向它。
+> 这个目录只要求**可写且持久化**，不要求与媒体同一文件系统；下文用它填 `x-data-dir`。
 > 它也是**唯一必须备份**的东西（§7），不要放 `/tmp` 这类临时目录，建议放在媒体目录之外。
 
 **② 下载 docker-compose（或从 README 复制内容自行创建）**：
@@ -385,60 +402,63 @@ mkdir -p <项目目录> && cd <项目目录>
 curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/main/work/docker-compose.release.yml
 ```
 
-> 根 [`README.md`](../../../README.md) 的「快速开始（镜像部署）」里有一份完整内容，与仓库文件一致。
+> 根 [`README.md`](../../../README.md) 的「快速开始（镜像部署）」里有一份完整内容，与仓库文件逐字一致。
 > `main` 分支 = 仓库最新版：升级时重新下载本文件即可让 compose 与镜像一起更新。
 > 文件名保持 `docker-compose.release.yml` 即可；也可以改名成默认的 `docker-compose.yml`，之后命令里的 `-f …` 相应去掉。
 
-**③ 按需设置挂载目录、数据目录与端口**（只改一处）：在 compose 同目录建 `.env`（compose 会自动读取，仅用于 `${VAR}` 插值）：
+**③ 按需设置挂载目录、数据目录与端口**：只改 compose 文件头「部署配置」里的锚点，改一处即全部生效：
+
+```yaml
+# ===== 部署配置：通常只需要改这一段 =====
+# 媒体共同父目录（下载目录与媒体库的共同父目录；必改）
+x-media-root: &media-root "/vol1/1000"
+# 容器数据目录（默认本文件同目录的 ./data；想用第 ① 步建的目录就改成绝对路径）
+x-data-dir: &data-dir "./data"
+# WebUI 端口（默认 18081）
+x-port: &port "18081"
+```
+
+改完启动：
 
 ```bash
-cat > .env <<'EOF'
-# ① 必改：下载目录与媒体库的共同父目录（宿主真实存在的绝对路径）
-MEDIA_ROOT=<媒体共同父目录>
-# ② 建议改：用第 ① 步创建的目录（不写 = 本文件同目录的 ./data）
-MLM_DATA_DIR=<数据卷>
-# ③ 按需改：18081 被占用时换一个（宿主与容器端口同步跟随）
-# PORT=18099
-# ④ 可选：钉住镜像版本（不写 = latest，跟随最新发布）
-# MLM_VERSION=1.0.0
-EOF
-
 docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d
 docker compose -f docker-compose.release.yml ps        # STATUS 出现 (healthy) 即成功
 ```
 
-- **① `MEDIA_ROOT`（唯一必改）**：下载目录与媒体库的共同父目录，例：下载 `/vol1/1000/Download`、
+- **① `x-media-root`（唯一必改）**：下载目录与媒体库的共同父目录，例：下载 `/vol1/1000/Download`、
   媒体库 `/vol1/1000/Library` ⇒ 填 `/vol1/1000`。必须宿主上**已存在**的绝对路径（否则 Docker 会以
   root 建空目录，程序报源目录不可读写）；容器内路径 = 宿主路径，不要填 `/data`、`/media` 这类容器内路径。
   下载与媒体库还必须在**同一个挂载点**内（否则硬链接报 `Invalid cross-device link`）——不确定时用
   `df -T <下载目录> <媒体库目录>` 或 `findmnt -T <目录>` 确认。首次建库会派生源 / 目标根
   `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`；目录名不同就首次启动后在 WebUI「设置」页改。
-- **② `MLM_DATA_DIR`（建议改）**：指向第 ① 步目录，放 `mlm.db`、`secret.key`、`config/`、`logs/`；
+- **② `x-data-dir`（建议改）**：指向第 ① 步目录的宿主绝对路径，放 `mlm.db`、`secret.key`、`config/`、`logs/`；
   不写默认 `./data`。只要求可写且持久化，是唯一必须备份的东西（§7.1）。
-- **③ `PORT`（按需）**：默认 `18081`；`docker compose up` 报 `port is already allocated` 或宿主
-  `ss -ltn | grep 18081` 有输出时换一个端口（如 `18099`）。`ports` 与容器内 `PORT` 用同一变量，
-  改一处两边同步，访问地址随之变化；有防火墙 / 安全组的话记得放行。
+- **③ `x-port`（按需）**：默认 `18081`；`docker compose up` 报 `port is already allocated` 或宿主
+  `ss -ltn | grep 18081` 有输出时换一个端口（如 `x-port: &port "18099"`）。`ports` 与容器内 `PORT`
+  引用同一个锚点，改一处两边同步，访问地址随之变化；有防火墙 / 安全组的话记得放行。
 
-> 不用 `.env` 也行：直接改 compose 里的默认值（`${MEDIA_ROOT:-/vol1/1000}` 等），或命令行前缀环境变量
-> （`MEDIA_ROOT=/mnt/media docker compose -f docker-compose.release.yml up -d`）。
-> ⚠️ 同一个变量在 compose 里出现**多处**（`environment.MEDIA_ROOT` 与 `volumes` 的宿主/容器两侧）：
-> 用 `.env`/环境变量改一次就全部同步；**直接改文件则这几处要一起改**，否则容器内外路径不一致。
+> 不用改本文件也行：在 compose 同目录建 `.env`（可选，compose 自动读取）写 `MEDIA_ROOT=<媒体共同父目录>`、
+> `MLM_DATA_DIR=<数据卷>`、`PORT=18099`，或启动命令前加同名环境变量
+> （`MEDIA_ROOT=/mnt/media docker compose -f docker-compose.release.yml up -d`）——
+> 两者都覆盖锚点里的默认值，且所有引用一起生效。
+> ✅ 本文件里同一个值靠锚点单点定义（`environment` / `ports` / `volumes` 都引用锚点），
+> 所以只改锚点一处即可，不需要像手写多份表达式那样多处同步。
 
 **默认值（都不用手配）**：
 
 | 项 | 默认 | 想改时 |
 |---|---|---|
-| 镜像版本 | `latest`（跟随最新发布） | `.env` 里 `MLM_VERSION=1.0.0` 钉住固定版本 |
-| 媒体共同父目录 | `/vol1/1000` | `.env` 里 `MEDIA_ROOT=/你的/路径`（只改一处） |
-| 数据卷（宿主） | compose 文件同目录的 `./data` | `MLM_DATA_DIR=/你的/路径/data` |
+| 镜像版本 | `latest`（跟随最新发布） | `MLM_VERSION=1.0.0` 钉住固定版本（改锚点、`.env` 或命令前变量均可） |
+| 媒体共同父目录 | `/vol1/1000` | 改 `x-media-root` 锚点（或设 `MEDIA_ROOT=/你的/路径`） |
+| 数据卷（宿主） | compose 文件同目录的 `./data` | 改 `x-data-dir` 锚点（或设 `MLM_DATA_DIR=/你的/路径/data`） |
 | 运行身份 | `PUID=auto` / `PGID=auto`：按 `MEDIA_ROOT` 属主自动识别（识别失败回退 `1000:1001` 并在日志 WARN） | 想固定就写数字 `PUID=1000 PGID=1000` |
-| 源 / 目标根 | `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仅首次建库时播种） | `DEFAULT_SOURCE_ROOT=… DEFAULT_TARGET_ROOT=…` |
-| 端口 | `18081` | `PORT=18099`（宿主与容器同步移动） |
+| 源 / 目标根 | 由 `MEDIA_ROOT` 自动派生 `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仅首次建库时播种） | 一般不用设；特殊值用 `DEFAULT_SOURCE_ROOT=… DEFAULT_TARGET_ROOT=…` |
+| 端口 | `18081` | 改 `x-port` 锚点（或设 `PORT=18099`，宿主与容器同步移动） |
 | `HOST_PATH_MAP` | 空 = 恒等（容器路径就是宿主路径） | 只在容器内路径 ≠ 宿主路径时才需要 |
 
 - `MEDIA_ROOT` 必须是宿主上真实存在的目录；**下载目录与媒体库在同一个挂载里**这条不变量不变（§2、§3）。
-- 数据卷默认建在 compose 同目录的 `./data`；想用 ① 创建的目录就设 `MLM_DATA_DIR`（或直接改 volumes 第 2 条）。
+- 数据卷默认建在 compose 同目录的 `./data`；想用 ① 创建的目录就把 `x-data-dir` 改成它的宿主绝对路径。
 - 后续验证、创建管理员、接 qBittorrent 与源码构建完全相同：§4.4 → §4.5 → §5。
 
 > GHCR 在国内部分网络下可能较慢或不可达；这种情况用源码构建（§4.3），或先在有网络的地方

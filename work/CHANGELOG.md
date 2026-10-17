@@ -16,22 +16,26 @@
 ### 部署：预构建镜像手动安装、默认零配置（`linux/amd64` / `linux/arm64` 均可）
 
 - **镜像部署改成手动三步**：① 创建容器数据目录（`mkdir -p`，路径自选）→ ② 下载
-  `work/docker-compose.release.yml`（或从 README 复制内容自行创建）→ ③ 在 compose 同目录的 `.env` 里
-  按需设置挂载目录 / 数据目录 / 端口（`MEDIA_ROOT` 必改；`MLM_DATA_DIR`、`PORT` 按需；`MLM_VERSION` 可选），然后
-  `docker compose -f docker-compose.release.yml up -d`。compose 与文档用 ✏️ 标出要改的位置；
-  **不再提供一键安装脚本**。
+  `work/docker-compose.release.yml`（或从 README 复制内容自行创建）→ ③ 按需改 compose 文件头
+  「部署配置」里的锚点（媒体挂载 `x-media-root` 必改；数据目录 `x-data-dir`、端口 `x-port` 按需），然后
+  `docker compose -f docker-compose.release.yml up -d`。**不再提供一键安装脚本**。
+- **免 `.env` 的单点配置**：release compose 用 YAML 锚点（`x-media-root` / `x-data-dir` / `x-port`）
+  把 `environment` / `ports` / `volumes` 收成同一处定义，改一行即全部生效；`.env` 与命令行环境变量
+  变成**可选覆盖**，不再需要「同一个变量在多处一起改」。
 - **镜像 tag 不写死版本号**：`docker-compose.release.yml` 的 `image:` 默认 `${MLM_VERSION:-latest}`
   （跟随最新发布），安装文档与 compose 里的下载地址改指 `main` 分支（README / `DEPLOYMENT.md` 不再钉死
-  `v1.0.0`）；要固定某次发布就在 `.env` 里设 `MLM_VERSION=1.0.0`。
+  `v1.0.0`）；要固定某次发布就设 `MLM_VERSION=1.0.0`。
 - **运行身份默认 `auto`**：`docker/entrypoint.sh` 按 `MEDIA_ROOT`（其次数据目录）的属主自动识别 `PUID`/`PGID`，
   不必先去宿主 `id`；显式传数字时行为不变，识别失败回退 `1000:1001` 并打 WARN。`docker/Dockerfile` 的默认 ENV
   同步改为 `auto`（`docker run` 直接跑也能自适应）。
-- **默认值随 `MEDIA_ROOT` 派生**：`DEFAULT_SOURCE_ROOT`/`DEFAULT_TARGET_ROOT` 默认取
-  `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仍只用于首次建库播种）；`HOST_PATH_MAP` 默认 `{}`（恒等）。
+- **默认值随 `MEDIA_ROOT` 派生（改到运行期）**：`app/config.py` 新增 `_media_root()` 回退 —— 未显式设置
+  `DEFAULT_SOURCE_ROOT`/`DEFAULT_TARGET_ROOT` 时按 `MEDIA_ROOT` 派生 `<MEDIA_ROOT>/Download`、
+  `<MEDIA_ROOT>/Library`（仍只用于首次建库播种），release compose 不再传这两个变量；`HOST_PATH_MAP` 默认 `{}`（恒等）。
 - **数据卷默认 `./data`**（compose 文件同目录），不再写死 `/vol1/1000/Docker/media-ingest/data`，换机器/换根目录不用改配置。
-- 以上只影响部署资产（`docker-compose.yml`、`docker-compose.release.yml`、`.env.example`、`docker/entrypoint.sh`、
-  `docker/Dockerfile` 与文档/校验脚本），**运行时代码、API、数据库结构与媒体处理结果均不变**。
-  `examples/validate-deployment-assets.sh` 相应增加 release compose 的静态断言，并反向断言不再引用一键脚本。
+- 影响面：部署资产（两份 compose、`.env.example`、`docker/entrypoint.sh`、`docker/Dockerfile`）与
+  `app/config.py` 的**默认值派生**（运行期）；**API、数据库结构、媒体处理结果均不变**，已有 `/data/mlm.db`
+  的实例不受影响（派生值只在首次建库播种）。
+  `examples/validate-deployment-assets.sh` 相应增加 release compose 的锚点单点/派生断言，并反向断言不再引用一键脚本。
 
 ### 变更：出厂默认特典判据（L3）新增第 7 条 `CM集`
 

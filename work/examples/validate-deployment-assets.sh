@@ -531,12 +531,8 @@ check("HOST_PATH_MAP" not in env,
       "release 不声明 HOST_PATH_MAP（单挂载下空映射=恒等，由应用默认值提供）")
 media_root = str(env.get("MEDIA_ROOT") or "")
 check(media_root.startswith("/"), "release MEDIA_ROOT 是绝对路径 -> %r" % (media_root,))
-check(env.get("DEFAULT_SOURCE_ROOT") == media_root + "/Download",
-      "release DEFAULT_SOURCE_ROOT 由 MEDIA_ROOT 派生（期望 %r，实际 %r）"
-      % (media_root + "/Download", env.get("DEFAULT_SOURCE_ROOT")))
-check(env.get("DEFAULT_TARGET_ROOT") == media_root + "/Library",
-      "release DEFAULT_TARGET_ROOT 由 MEDIA_ROOT 派生（期望 %r，实际 %r）"
-      % (media_root + "/Library", env.get("DEFAULT_TARGET_ROOT")))
+check("DEFAULT_SOURCE_ROOT" not in env and "DEFAULT_TARGET_ROOT" not in env,
+      "release 不显式传 DEFAULT_SOURCE_ROOT/DEFAULT_TARGET_ROOT（运行期由 app/config.py 从 MEDIA_ROOT 派生）")
 print("  ---- release compose 事实小计：%d PASS / %d FAIL ----" % (PASS, FAIL))
 sys.exit(0 if FAIL == 0 else 1)
 PYEOF
@@ -547,6 +543,30 @@ PYEOF
         fi
     else
         ko "docker-compose.release.yml 渲染失败：$(cat err-rel.txt)"
+    fi
+
+    # 单点配置护栏：release compose 必须用 YAML 锚点定义挂载/端口，environment/ports/volumes 全部引用锚点。
+    anchor_fail=""
+    for pat in '^x-media-root: &media-root' '^x-data-dir: &data-dir' '^x-port: &port'; do
+        LC_ALL=C grep -qE -- "$pat" docker-compose.release.yml || anchor_fail="$anchor_fail 缺少锚点定义($pat)"
+    done
+    for pat in '\*media-root' '\*data-dir' '\*port'; do
+        case "$pat" in
+            '\*data-dir') need=1 ;;   # 只被 volumes.source 一处引用（target 固定 /data）
+            *) need=2 ;;
+        esac
+        n=$(LC_ALL=C grep -c -- "$pat" docker-compose.release.yml 2>/dev/null || true)
+        [ "${n:-0}" -ge "$need" ] || anchor_fail="$anchor_fail 锚点 $pat 引用不足(${n:-0}<${need})"
+    done
+    if [ -n "$anchor_fail" ]; then
+        ko "release compose 未做到锚点单点配置：$anchor_fail"
+    else
+        ok "release compose 用 YAML 锚点单点定义媒体挂载/数据目录/端口（改一行即全部生效）"
+    fi
+    if LC_ALL=C grep -q 'DEFAULT_SOURCE_ROOT\|DEFAULT_TARGET_ROOT' docker-compose.release.yml; then
+        ko "release compose 又显式传了 DEFAULT_SOURCE_ROOT/DEFAULT_TARGET_ROOT（应由 app/config.py 从 MEDIA_ROOT 派生）"
+    else
+        ok "release compose 不显式传 DEFAULT_*（运行期从 MEDIA_ROOT 派生）"
     fi
 
     note "6c. 一键安装脚本已取消（回归护栏：安装方式 = 手动三步）"
