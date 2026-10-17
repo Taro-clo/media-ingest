@@ -146,7 +146,7 @@ mount_id_of() {
 
 # ---------------------------------------------------------------------------
 # 1. 把 app 用户对齐到 PGID / PUID
-#    默认 1000:1001 是常见 NAS 的用户/组 ID；宿主上请用 id 命令确认你自己的。目标 gid/uid 在镜像里可能已被占用
+#    默认 1000:1001 是常见 Linux 的用户/组 ID；宿主上请用 id 命令确认你自己的。目标 gid/uid 在镜像里可能已被占用
 #    （例如该 gid 已对应某个系统组），此时**不覆盖、不失败**，改为复用同名组/用户
 #    并检查 app 的最终身份是否就是 PUID/PGID；不一致就给出去权提示而不是硬崩。
 # ---------------------------------------------------------------------------
@@ -229,7 +229,7 @@ else
      它默认位于数据卷 $DATA_DIR 内（compose 里 \"./data:/data\" 那条卷；这里是 $DATA_DIR/config）。
      请在宿主把该卷的属主交给 ${PUID}:${PGID}，例如：
        sudo chown -R ${PUID}:${PGID} '<宿主上对应 $DATA_DIR 的目录>'
-     （NAS 默认部署即 sudo chown -R ${PUID}:${PGID} /vol1/1000/Docker/media-ingest/data）
+     （常见部署即 sudo chown -R ${PUID}:${PGID} /vol1/1000/Docker/media-ingest/data）
      若你把 DATA_DIR 指到了别处，请同时显式设置 CONFIG_DIR。"
 fi
 

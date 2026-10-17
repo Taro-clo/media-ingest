@@ -16,7 +16,7 @@
 FROM python:3.11-slim
 
 # ---- 构建期元信息 -----------------------------------------------------------
-LABEL org.opencontainers.image.title="NAS Media Library Manager" \
+LABEL org.opencontainers.image.title="Media Ingest" \
       org.opencontainers.image.description="为 qBittorrent 已完成的下载创建硬链接并按媒体库配置重命名（源树只读，绝不写回）" \
       org.opencontainers.image.source="media-ingest" \
       org.opencontainers.image.licenses="MIT"
