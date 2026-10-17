@@ -1,6 +1,6 @@
 """``app/paths.py``（ARCHITECTURE §6.4）——路径工具与文件系统校验。
 
-这一层是 **A9（绝不复制回退）** 的落点，所以断言分两类：
+这一层是 **「绝不复制回退」** 的落点，所以断言分两类：
 
 * 纯函数语义：``normalize`` / ``is_inside`` / ``to_host`` / ``to_container`` /
   ``existing_ancestor`` —— 全是字符串运算，任何平台都能跑；
@@ -234,7 +234,7 @@ def test_to_host_keeps_windows_drive_paths_usable(settings_env, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# check_same_filesystem（A9 的前置拦截）
+# check_same_filesystem（级联预检的前置拦截）
 # --------------------------------------------------------------------------- #
 def test_same_filesystem_for_two_dirs_on_one_device(paths_mod, tmp_path):
     source = tmp_path / "downloads"
@@ -714,10 +714,10 @@ def test_verify_source_tree_never_modifies_anything(paths_mod, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# A9 的静态约束
+# 级联预检的静态约束
 # --------------------------------------------------------------------------- #
 def test_paths_module_never_copies_files(paths_mod):
     text = Path(paths_mod.__file__).read_text(encoding="utf-8")
-    assert "import shutil" not in text, "这一层要是能复制文件，A9 就无从谈起"
+    assert "import shutil" not in text, "这一层要是能复制文件，这条约束就无从谈起"
     for forbidden in ("shutil.copy", "shutil.copy2", "shutil.copyfile", "shutil.copytree"):
         assert forbidden not in text

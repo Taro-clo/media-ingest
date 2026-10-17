@@ -272,6 +272,18 @@ settings: Settings                 # 单例
 前导斜杠"归一化，`host_to_container_map()` 再做一次防御性归一化；否则 `paths.to_host()` 的展示会静默
 失效。`HOST_PATH_MAP` **只用于界面展示**，不参与任何功能判定。
 
+### 6.2 `app/db.py`
+
+- `connect()`（`check_same_thread=False`、WAL、`row_factory`）、`get_conn()`（thread-local）、`init_db()`、`tx()`、`get_setting`/`set_setting`/`all_settings`。表见 §3
+
+### 6.3 `app/security.py`
+
+- `hash_password`/`verify_password`（恒时比较）、`make_session`（`"username.expiry.hmac"`）、`read_session`、`require_user`（未认证 401）、`check_hook_token`
+
+### 6.4 `app/paths.py`
+
+- `to_host`/`to_container`/`normalize`/`is_inside`/`existing_ancestor`/`assert_allowed`/`check_cross_mounts`/`check_same_filesystem`/`probe_cross_filesystem`/`find_sample_file`/`cleanup_probe_leftovers`/`mount_id_for`/`check_same_mount`/`check_hardlink_support`/`snapshot_source_tree`/`verify_source_tree`。语义见 §2
+
 ### 6.5 `app/script_adapter.py`
 
 > ⚠️ 运行期执行的是原生实现 `app/processors/hardlink.py`（可观察输出由 `tests/test_hardlink_native.py` 的
@@ -323,23 +335,27 @@ def remove_log_entries(log_file, source_dir, folder) -> int
     硬链接"由 `_split_already_linked()` 从 `failed` 改判为 `already_linked`。
 11. **源完整性核对**：任务前快照、任务后复核 ⇒ `Task.result.source_integrity`；硬链接造成的 `nlink`+1
     与 `ctime` 变化**不算**差异（避免误报），有差异时同时写 `warnings[]`（B5）。
+### 6.6 `app/queue.py`
+
+- `TaskSpec{library_id,kind,trigger,scope,payload}`；`TaskQueue.start()/stop(timeout=10)/submit(spec)->int/cancel(task_id)->bool(仅 queued)/running_task_id/queued_count`；单例 `queue`。单工作线程（`daemon=True`）取最早 `queued` 执行，异常必须捕获并写入 task+日志（B11）；`submit` 立即 `INSERT status='queued'`
+
+### 6.7 `app/executor.py`
+
+- `execute_task(task_id)`：读 task/library → `running` → 预检（源可读、目标最近已存在祖先与源同挂载、目标父目录按建链实现的方式创建）→ link 走 `run_hardlinks`、rename 走 `engine.run_rename` → 汇总 `result` → 定 `status` → 写 `finished_at`/`task_logs`/`trim_history()`/`todos.record_task_events()`。`scope.mode="works"` 时用 `link_records.folder_sizes(...)` 造 `skip` 并传 `folders=`，建链后 `upsert` 真正写进日志的作品、`drop` 被孤儿清理的目标；`force` 的作品先从 `skip` 摘掉（否则"强制重跑"是静默空操作）。`status`：有 `exception` 或 `link_failed>0 and linked==0` ⇒ `failed`；否则 `success`（部分失败 = `success`+`warnings`）；`skipped` = 文件夹级跳过 + `already_linked`
+
+### 6.8 `app/scanner.py`
+
+- `scan_once()->list[int]`：遍历 enabled 库，有"未记录或体积变化"的一级文件夹则 `submit`；`Scanner.start()/stop()` 按 `scan_interval_seconds` 轮询。**只创建任务，不做任何文件操作**
+
+### 6.9 `app/qbittorrent.py`
+
+- `QBClient(base_url,username,password,timeout=10)` 的 `login()`/`torrents(**filters)`/`app_version()`；模块级 `test_connection(base_url,username,password)`、`test_saved()`、`latency_of(...)`。**只用于状态展示与连通性测试**，触发一律走回调。⚠️ 刷新**必须**用模块级函数 —— `QBClient` 上没有 `test_connection` 方法，写成 `client.test_connection()` 会被宽 `except` 吞掉 ⇒ 状态灯永远不亮（`tests/test_scanner_qbittorrent.py`）
+
+### 6.10 `app/todos.py`
+
+- 全局唯一一份看板：只读 `result` 与 `tasks`，只写 `todos`，**不弹窗、不阻断、不改既有行为**（B12）。常量 `KNOWN_KINDS`（**六种**）/`TODO_STATUSES`/`TODO_SEVERITIES`/`MAX_DETAIL_CHARS=4000`/`DETECT_MODES`；函数 `normalize_kinds`/`enabled_kinds`/`record_task_events`/`get_todo`/`list_todos`/`todo_summary`/`resolve_todo`/`reopen_todo`/`detect_resolved`/`resolve_detected`/`todo_dict`。六种 kind：`link_failed`(error)、`rename_suffix`(warning，合并"加后缀"与"原有文件让位")、`unresolved_episode`(warning)、`unscoped_works`(warning)、`source_integrity`(error，**只在明确为 `False` 时**)、`task_failed`(error，调用方必须显式传 `status=`/`error=`)。**去重语义（冻结）**：同 `(kind,dedupe_key)` 已有 `open` ⇒ 只累加 `occurrences`、刷新 `last_seen_at` 与最近上下文，`first_seen_at` 不动；曾 `done` 而再次发生 ⇒ **新插一条 `open`**，历史那条一个字节不动；`resolve`/`reopen` 只改 `status`/`resolved_at`，**绝不删数据**且幂等；计数 >0 但样本缺失 ⇒ **仍记一条**（`dedupe_key` 退化），绝不静默丢事件；`result` 缺键/类型错按 0 处理。排序：未完成在前 → `last_seen_at DESC` → `id DESC`。`DETECT_MODES` 只登记带得出单个文件路径的种类（`link_failed`=`present`；`rename_suffix`/`unresolved_episode`=`missing`）；`task_failed`/`source_integrity`/`unscoped_works` **不可检测**，由 `todo_summary()["undetectable_kinds"]` 如实告知前端；`detect_resolved()` 只列候选，`resolve_detected()` 才落笔且逐条复核。接线点：`execute_task` 收尾拿到最终 `status`/`error` 后调一次 `record_task_events(...)`，它**自己开事务、整批一个事务**，内部异常只记日志、**绝不外抛**
 
 ---
-
-
-### 6.2–6.4、6.6–6.10 其它模块（一览）
-
-| § | 模块 | 关键符号与不可让步的要点 |
-|---|---|---|
-| 6.2 | `db.py` | `connect()`（`check_same_thread=False`、WAL、`row_factory`）、`get_conn()`（thread-local）、`init_db()`、`tx()`、`get_setting`/`set_setting`/`all_settings`。表见 §3 |
-| 6.3 | `security.py` | `hash_password`/`verify_password`（恒时比较）、`make_session`（`"username.expiry.hmac"`）、`read_session`、`require_user`（未认证 401）、`check_hook_token` |
-| 6.4 | `paths.py` | `to_host`/`to_container`/`normalize`/`is_inside`/`existing_ancestor`/`assert_allowed`/`check_cross_mounts`/`check_same_filesystem`/`probe_cross_filesystem`/`find_sample_file`/`cleanup_probe_leftovers`/`mount_id_for`/`check_same_mount`/`check_hardlink_support`/`snapshot_source_tree`/`verify_source_tree`。语义见 §2 |
-| 6.6 | `queue.py` | `TaskSpec{library_id,kind,trigger,scope,payload}`；`TaskQueue.start()/stop(timeout=10)/submit(spec)->int/cancel(task_id)->bool(仅 queued)/running_task_id/queued_count`；单例 `queue`。单工作线程（`daemon=True`）取最早 `queued` 执行，异常必须捕获并写入 task+日志（B11）；`submit` 立即 `INSERT status='queued'` |
-| 6.7 | `executor.py` | `execute_task(task_id)`：读 task/library → `running` → 预检（源可读、目标最近已存在祖先与源同挂载、目标父目录按建链实现的方式创建）→ link 走 `run_hardlinks`、rename 走 `engine.run_rename` → 汇总 `result` → 定 `status` → 写 `finished_at`/`task_logs`/`trim_history()`/`todos.record_task_events()`。`scope.mode="works"` 时用 `link_records.folder_sizes(...)` 造 `skip` 并传 `folders=`，建链后 `upsert` 真正写进日志的作品、`drop` 被孤儿清理的目标；`force` 的作品先从 `skip` 摘掉（否则"强制重跑"是静默空操作）。`status`：有 `exception` 或 `link_failed>0 and linked==0` ⇒ `failed`；否则 `success`（部分失败 = `success`+`warnings`）；`skipped` = 文件夹级跳过 + `already_linked` |
-| 6.8 | `scanner.py` | `scan_once()->list[int]`：遍历 enabled 库，有"未记录或体积变化"的一级文件夹则 `submit`；`Scanner.start()/stop()` 按 `scan_interval_seconds` 轮询。**只创建任务，不做任何文件操作** |
-| 6.9 | `qbittorrent.py` | `QBClient(base_url,username,password,timeout=10)` 的 `login()`/`torrents(**filters)`/`app_version()`；模块级 `test_connection(base_url,username,password)`、`test_saved()`、`latency_of(...)`。**只用于状态展示与连通性测试**，触发一律走回调。⚠️ 刷新**必须**用模块级函数 —— `QBClient` 上没有 `test_connection` 方法，写成 `client.test_connection()` 会被宽 `except` 吞掉 ⇒ 状态灯永远不亮（`tests/test_scanner_qbittorrent.py`） |
-| 6.10 | `todos.py` | 全局唯一一份看板：只读 `result` 与 `tasks`，只写 `todos`，**不弹窗、不阻断、不改既有行为**（B12）。常量 `KNOWN_KINDS`（**六种**）/`TODO_STATUSES`/`TODO_SEVERITIES`/`MAX_DETAIL_CHARS=4000`/`DETECT_MODES`；函数 `normalize_kinds`/`enabled_kinds`/`record_task_events`/`get_todo`/`list_todos`/`todo_summary`/`resolve_todo`/`reopen_todo`/`detect_resolved`/`resolve_detected`/`todo_dict`。六种 kind：`link_failed`(error)、`rename_suffix`(warning，合并"加后缀"与"原有文件让位")、`unresolved_episode`(warning)、`unscoped_works`(warning)、`source_integrity`(error，**只在明确为 `False` 时**)、`task_failed`(error，调用方必须显式传 `status=`/`error=`)。**去重语义（冻结）**：同 `(kind,dedupe_key)` 已有 `open` ⇒ 只累加 `occurrences`、刷新 `last_seen_at` 与最近上下文，`first_seen_at` 不动；曾 `done` 而再次发生 ⇒ **新插一条 `open`**，历史那条一个字节不动；`resolve`/`reopen` 只改 `status`/`resolved_at`，**绝不删数据**且幂等；计数 >0 但样本缺失 ⇒ **仍记一条**（`dedupe_key` 退化），绝不静默丢事件；`result` 缺键/类型错按 0 处理。排序：未完成在前 → `last_seen_at DESC` → `id DESC`。`DETECT_MODES` 只登记带得出单个文件路径的种类（`link_failed`=`present`；`rename_suffix`/`unresolved_episode`=`missing`）；`task_failed`/`source_integrity`/`unscoped_works` **不可检测**，由 `todo_summary()["undetectable_kinds"]` 如实告知前端；`detect_resolved()` 只列候选，`resolve_detected()` 才落笔且逐条复核。接线点：`execute_task` 收尾拿到最终 `status`/`error` 后调一次 `record_task_events(...)`，它**自己开事务、整批一个事务**，内部异常只记日志、**绝不外抛** |
-
 
 ## 7. 前端契约（`web/`，免构建）
 

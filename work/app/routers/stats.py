@@ -1,4 +1,4 @@
-"""``/api/stats/overview``（ARCHITECTURE §5.3）。
+"""``/api/stats/overview``（ARCHITECTURE §5）。
 
 仪表盘唯一的聚合接口，刻意做成**一次查询搞定**：首页每次刷新都会调它，
 拆成多个 HTTP 请求只会让"打开就转圈"更容易发生。

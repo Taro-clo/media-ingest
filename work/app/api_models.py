@@ -1,4 +1,4 @@
-"""请求/响应模型（ARCHITECTURE §5.1 与 §3.9 的写入形状）。
+"""请求/响应模型（ARCHITECTURE §5.1 与 §3 的写入形状）。
 
 刻意的取舍：**只把“请求体”建模为 Pydantic 模型，响应一律手写 dict**。
 理由是响应形状要和 ``docs/contracts/ARCHITECTURE.md`` §5 逐字段对应、且字段随运行状态变化

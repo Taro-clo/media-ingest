@@ -10,7 +10,7 @@
 //      + 接受 / 拒绝目录正则（每库独立）+ 本库后缀白名单；写入 libraries.rule_override
 //   6) 卡片「重命名日志」：log_file（只允许文件名）
 //   7) 卡片「行为选项」：orphan_cleanup（含风险）/ permission_mode（含风险；从关到开需二次确认）
-//   8) 卡片「已知限制」：details 折叠（L2/L4/L5/L6/L7/L8/L9、A9/A10、结构前提）
+//   8) 卡片「已知限制」：details 折叠（L2/L4/L5/L6/L7/L8/L9、结构前提）
 //   9) 底部粘性操作条：保存 / 取消
 // 路由：#/libraries/new（新建）、#/libraries/{id}/edit（编辑）
 //

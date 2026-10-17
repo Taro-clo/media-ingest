@@ -1,4 +1,4 @@
-"""``/api/settings/*``（ARCHITECTURE §5.3 与 §5.0 第 4 条）。
+"""``/api/settings/*``（ARCHITECTURE §5 与 §5.0 ③-4）。
 
 设置表是**纯文本 key-value**，但 HTTP 契约要求**真类型**（``bool`` / ``int`` / ``array``）。
 两者之间只有这一层做转换，所以这里集中定义唯一一份「键 -> 类型」表：

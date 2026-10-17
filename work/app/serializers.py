@@ -242,7 +242,7 @@ def log_dict(row) -> dict:
     全项目**没有**对外返回 UTC 原值的字段（``log_continuity`` 已整条删除，见
     PROCESSORS §5.3），配置同步的时间戳同样走 ``format_time``。
 
-    ``task_id`` 照着 docs/contracts/API.md §4.4 的响应示例保留（§5.0 第 6 条只列了必有的五项，
+    ``task_id`` 照着 docs/contracts/API.md §4.4 的响应示例保留（ARCHITECTURE §5.0 ③-3 只列了必有的五项，
     多这一个字段不会破坏任何客户端，却能让"这份日志属于哪个任务"自明）。
     """
     return {

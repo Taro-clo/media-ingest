@@ -118,7 +118,7 @@ def test_executor_only_warns_when_the_precheck_says_cross_mount(
     """预检 ``False``（明确跨挂载）**不硬拦**：任务照跑，结论进 warnings 和日志。
 
     这是级联预检的只读实证口径的核心让步：级联判据必要不充分（挂载 ID 可能误判、btrfs 子卷是已知
-    例外），所以运行前只警告；"建不出链"只能由真实 ``os.link`` 判定（A9/B8 也不允许
+    例外），所以运行前只警告；"建不出链"只能由真实 ``os.link`` 判定（B8 也不允许
     用复制兜底，所以失败是逐文件 ``link_failed``）。
     """
     build_tree(source_dir, MEDIA_TREE)
@@ -601,7 +601,7 @@ def test_system_info_mounts_are_a_dynamic_set_never_a_fixed_three(
 def test_the_precheck_module_never_copies_files():
     """静态守卫（与 test_paths 里那条同类）：预检链路里不许出现任何复制回退。
 
-    A9/B8 是硬约束：宁可不建链接、报 ``link_failed``，也不许"看起来成功"地复制一份。
+    B8 是硬约束：宁可不建链接、报 ``link_failed``，也不许"看起来成功"地复制一份。
     """
     here = os.path.dirname(os.path.abspath(__file__))
     sources = [os.path.join(here, "..", "app", "paths.py"),

@@ -172,7 +172,7 @@ def create_app() -> FastAPI:
             content={"detail": f"服务器内部错误：{type(exc).__name__}: {exc}"},
         )
 
-    # ---- 3) API 路由：**必须**先于静态目录注册（§5.0 第 7 条）
+    # ---- 3) API 路由：**必须**先于静态目录注册（ARCHITECTURE §5.0 ② 路由挂载）
     app.include_router(auth.router)
     app.include_router(libraries.router)
     app.include_router(tasks.router)

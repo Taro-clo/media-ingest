@@ -1,6 +1,6 @@
 """``app.script_adapter.run_hardlinks`` 的行为测试。
 
-对应 BASELINE §1.4/§1.5/§1.6、ARCHITECTURE §6.5 的要点 1-10，以及规则 A2/A3/A6/A9/A10：
+对应 BASELINE §1.4/§1.5/§1.6、ARCHITECTURE §6.5 的要点 1-10，以及「输出等价 / 绝不复制回退 / 建链失败即报错」等规则：
 
 * **不复制、不搬家**：目标树里的每个文件都必须是真硬链接（同 dev/ino、nlink==2），
   源目录必须逐字节、逐 mtime 未变；目标已存在同名文件时只报失败，绝不覆盖。
@@ -35,7 +35,7 @@ SHOW_A_SIZE = 11 + 22 + 33 + 44
 
 @pytest.fixture
 def hardlink_log(log_dir):
-    """应用数据卷里的 ``hard_links.log``（A4：日志落在 /data，不写媒体库目录）。"""
+    """应用数据卷里的 ``hard_links.log``（日志落在 /data，不写媒体库目录）。"""
     return str(log_dir / "hard_links.log")
 
 
@@ -81,7 +81,7 @@ def test_full_run_links_every_nested_file(
     # 源内容逐字节未变（复制回退会改写源，这里顺便钉住 payload）。
     assert H.read_bytes(source_dir / "Show A" / "Season 1" / "Subs" / "extra.srt") == b"x" * 33
 
-    assert outcome.stdout, "A6：脚本 stdout 必须被 redirect_stdout 捕获，而不是漏到控制台"
+    assert outcome.stdout, "脚本 stdout 必须被 redirect_stdout 捕获，而不是漏到控制台"
     assert outcome.stdout.count("已创建硬链接: ") == len(MEDIA_TREE)
 
 
@@ -185,7 +185,7 @@ def test_existing_target_hardlink_is_idempotent_not_a_failure(
 
     与上一条的唯一区别是 inode：同一个 ``(st_dev, st_ino)`` ⇒ ``force`` 重跑不再把任务
     判成失败（否则"给一个有命名模板的库重跑"永远是红的）；不是同一个 inode ⇒ 照旧逐条
-    报失败，既不覆盖也不复制（A9/B8 不动摇）。原生实现依旧打印失败行，
+    报失败，既不覆盖也不复制（B8 契约不动摇）。原生实现依旧打印失败行，
     改的只是**账**，所以 stdout 等价性契约一个字都没动。
     """
     build_tree(source_dir, FLAT_TREE)
@@ -207,14 +207,14 @@ def test_existing_target_hardlink_is_idempotent_not_a_failure(
         "b.mkv",
         "c.mkv",
     ], forced.already_linked
-    assert "创建硬链接失败: " in forced.stdout, "基线输出必须原样保留（A2）"
+    assert "创建硬链接失败: " in forced.stdout, "基线输出必须原样保留"
     assert "已创建硬链接: " not in forced.stdout
 
 
 def test_cross_filesystem_warns_but_still_runs_the_script_without_copying(
     adapter, build_tree, source_dir, target_dir, log_dir
 ):
-    """B8/A9（级联预检的只读实证口径修订）：跨设备/跨挂载**警告但允许跑**，结论以实际 ``os.link`` 为准。
+    """B8（级联预检的只读实证口径修订）：跨设备/跨挂载**警告但允许跑**，结论以实际 ``os.link`` 为准。
 
     旧口径"`st_dev` 不同就不跑"已退场：预筛（挂载身份 → `st_dev`）**必要不充分**，
     ``False`` 只说明"很可能失败"，不是"不许尝试" —— 硬拦会把"挂载配错"升级成"整个库建不出链"。

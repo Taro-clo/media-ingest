@@ -1,4 +1,4 @@
-"""``/api/hooks/*``（ARCHITECTURE §5.3 与 §8）。
+"""``/api/hooks/*``（ARCHITECTURE §5 与 §8）。
 
 qBittorrent 下载完成后通过「运行外部程序」用 ``curl`` 回调这里（**唯一给定形式**，§8 那一行的
 逐字副本：同样是 7 个参数、同样顺序，此处只为阅读折行）：

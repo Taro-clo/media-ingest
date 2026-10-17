@@ -254,7 +254,7 @@ def test_the_native_implementation_keeps_the_frozen_print_prefixes(adapter):
 
 
 def test_the_native_implementation_keeps_a9_never_copy_and_never_overwrite():
-    """规则 A9 必须由**运行时那份实现**来满足。
+    """「绝不复制回退」必须由**运行时那份实现**来满足。
 
     运行期实现只用 ``os.link``、绝无复制回退，因此同样的断言必须落在
     ``app/processors/hardlink.py`` 上 —— 否则"不许静默复制

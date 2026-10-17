@@ -1,4 +1,4 @@
-"""``/api/system/*``（ARCHITECTURE §5.3、PROCESSORS §2.3/§6.1/§9）。
+"""``/api/system/*``（ARCHITECTURE §5、PROCESSORS §2.1/§6.1/§9）。
 
 三个接口的用途完全不同，别混：
 
@@ -317,7 +317,7 @@ def _libraries_for_info() -> list[dict]:
 
 
 def _rename_logs_for_info() -> list[dict]:
-    """逐库一条的重命名日志摘要（PROCESSORS §5.7 / §7）。
+    """逐库一条的重命名日志摘要（`API.md` §5.6 / `PROCESSORS` §5）。
 
     契约形状（**六键，不多不少**——前端按它渲染「重命名日志」表格）::
 

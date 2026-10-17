@@ -1,4 +1,4 @@
-"""孤儿清理（BASELINE §1.3 / A8）与日志条目摘除-回写的测试。
+"""孤儿清理（BASELINE §1.3）与日志条目摘除-回写的测试。
 
 原生实现有一个**破坏性**分支：
 
@@ -295,7 +295,7 @@ def test_remove_log_entries_is_a_noop_when_nothing_matches(
 def test_force_rebuilds_links_and_replaces_the_record(
     adapter, build_tree, source_dir, target_dir, hardlink_log
 ):
-    """A8：``force=True`` 先删记录，就不会走"体积一致即跳过"分支。"""
+    """``force=True`` 先删记录，就不会走"体积一致即跳过"分支。"""
     build_tree(source_dir, TREE)
     first = _run(adapter, source_dir, target_dir, hardlink_log)
     assert first.exception is None and len(first.created) == 3

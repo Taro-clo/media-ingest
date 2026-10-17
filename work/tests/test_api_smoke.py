@@ -443,7 +443,7 @@ def test_run_creates_real_hardlinks_and_renames_end_to_end(
             library_root / "Bangumi" / folder / "Season 1" / name,
         )
 
-    # A10：源目录一个字节都不许变（mtime/ino/mode 全等；nlink 不算，建链本来就会 +1）。
+    # 源目录一个字节都不许变（mtime/ino/mode 全等；nlink 不算，建链本来就会 +1）。
     assert H.tree_snapshot(source_dir) == before_source
 
     again = _run_library(api_client, library["id"])

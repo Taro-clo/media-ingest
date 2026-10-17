@@ -152,7 +152,7 @@ def test_force_rerun_counts_already_linked_as_skipped(
     assert forced.created == []
     assert forced.failed == [], "同 inode 的已存在文件必须改判，不算失败"
     assert sorted(os.path.basename(p) for p in forced.already_linked) == ["ep01.mkv", "ep02.mkv"]
-    # 失败行一个字都不许改：照样打印（A2 的 stdout 等价性契约）。
+    # 失败行一个字都不许改：照样打印（stdout 等价性契约）。
     assert "创建硬链接失败: " in forced.stdout
     assert len(_records(hardlink_log)) == 1
 
@@ -199,7 +199,7 @@ def test_folder_name_containing_dash_no_longer_reports_spurious_failures(
     """**L2 的一半（历史解析缺陷）**：folder 名含 ``" - "`` ⇒ 日志行永远解析失败。
 
     后果：该 folder 每次都走"重新处理"分支 ⇒ 每次都在日志末尾追加一行（"日志只增不减"
-    的真实来源）。修复它会改变既有解析行为（A2 禁止），所以本应用只能靠
+    的真实来源）。修复它会改变既有解析行为（既有契约禁止），所以本应用只能靠
     ``force``/手动清理兜底。测试钉住现状，避免将来被"顺手修好"漂移。
 
     **失败账目侧的修复**：失败的**账**不再被截断的文本连累 —— 原生实现把失败项按

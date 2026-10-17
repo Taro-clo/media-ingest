@@ -14,9 +14,8 @@
   B10 容器 locale/编码锁定 UTF-8；B11 单进程单 worker 串行。
 
 硬链接链路**完全由应用自带实现驱动**：``app/script_adapter.py`` 驱动
-``app/processors/hardlink.py``（``adapter.runtime_module()``）。A5–A9（root logger 接管、print 捕获、
-``ScopedOs`` 必定恢复、``force`` 先清记录、无复制回退 + inode 核对）作为该链路的行为约束继续保留，
-编号不变。
+``app/processors/hardlink.py``（``adapter.runtime_module()``）。root logger 接管、print 捕获、
+``ScopedOs`` 必定恢复、``force`` 先清记录、无复制回退 + inode 核对，作为该链路的行为约束继续保留。
 
 静态检查读的是仓库里的 ``docker-compose.yml`` / ``docker/Dockerfile`` / 应用源码，
 断言只看**生效行**（去掉注释），否则解释性注释里的反例会把断言带跑偏。
@@ -219,7 +218,7 @@ def test_b1_no_original_script_dir_setting_is_needed(compose_text, dockerfile_te
 
 
 def test_a10_is_superseded_by_b9_so_the_parent_mount_is_the_only_media_bind(compose_text):
-    """A10（**已变更**）：「``/downloads`` 只读挂载」层保护**已由 B9 取代**。
+    """（**已变更**）：「``/downloads`` 只读挂载」层保护**已由 B9 取代**。
 
     单挂载形态下容器里只有一条**共同父挂载**：内核的 ``linkat(2)`` 比较**挂载身份**，把源单独
     只读挂成第二条 bind 就等于让硬链接永远 ``EXDEV``。所以源目录一侧的「不许被写」不再是
@@ -433,7 +432,7 @@ def test_a13_seed_log_and_log_continuity_are_gone_from_the_backend():
     assert not hits, f"A13 的入口必须彻底消失，仍存在：{sorted(set(hits))}"
 
 
-# --------------------------------------------------------------------------- A5 / A6
+# ----------------------------------------------------------------- 适配器接管与日志契约
 
 
 def test_a5_backend_takes_over_the_root_logger_with_the_frozen_format(
@@ -482,7 +481,7 @@ def test_a5_backend_takes_over_the_root_logger_with_the_frozen_format(
 
 
 def test_a6_script_prints_are_captured_not_leaked(adapter, build_tree, source_dir, target_dir, log_dir):
-    """A6：适配器必须把被调用方的 print 吞进 ``outcome.stdout``，不能漏到服务进程 stdout。"""
+    """适配器必须把被调用方的 print 吞进 ``outcome.stdout``，不能漏到服务进程 stdout。"""
     build_tree(source_dir, {"Show A/ep01.mkv": 10})
     outer = io.StringIO()
     with contextlib.redirect_stdout(outer):
@@ -496,7 +495,7 @@ def test_a6_script_prints_are_captured_not_leaked(adapter, build_tree, source_di
     assert outer.getvalue() == "", f"服务进程 stdout 被污染：{outer.getvalue()!r}"
 
 
-# --------------------------------------------------------------------------- A7 / A8
+# ----------------------------------------------------------------- 定向重跑与孤儿清理
 
 
 def test_a7_scoped_os_is_installed_during_the_call_and_restored_after(
@@ -602,7 +601,7 @@ def test_a8_force_prunes_the_log_before_the_script_runs(
         module.create_hard_links = original
 
 
-# --------------------------------------------------------------------------- A9
+# ------------------------------------------------------------- 级联预检与不复制回退
 
 
 def test_a9_no_copy_fallback_anywhere_in_the_backend():
