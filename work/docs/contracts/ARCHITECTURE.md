@@ -165,7 +165,8 @@ CREATE UNIQUE INDEX idx_link_records_library_folder ON link_records(library_id, 
   `{"field":…, "message":…}` 只出现在 `POST /api/processors/validate` 的 **200** 响应（
   `app/processors/spec.py::iter_errors()`，该端点**不落库**）。
 - `source_dir` 与 `target_dir` 都是**容器路径**，不做前缀白名单校验；建库/改库时由
-  `paths.check_cross_mounts()` 校验两者**不得相同、不得互相包含**，并要求能建硬链接（同一挂载）。
+  `paths.check_cross_mounts()` 校验两者**不得相同、不得互相包含**，再由 `paths.check_same_mount()`
+  要求两者在**同一个挂载**（不同 ⇒ `400`，建不了硬链接）。
 
 ---
 

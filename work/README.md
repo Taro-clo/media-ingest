@@ -37,7 +37,7 @@
 | 阶段   | 做什么                                                                   | 实现                                           |
 | ------ | ------------------------------------------------------------------------ | ---------------------------------------------- |
 | 触发   | qBittorrent 下载完成回调 / 手动运行 / 目录扫描补偿 / API                 | `app/routers/tasks.py`、`app/routers/hooks.py` |
-| 匹配   | 按媒体库的分类 / 标签 / 路径前缀匹配（**多个条件为 AND**，全空则不匹配） | `app/scanner.py`                               |
+| 匹配   | qBittorrent 回调时按媒体库的分类 / 标签 / 路径前缀匹配（**多个条件为 AND**，全空则不匹配；手动执行与目录扫描不看这些条件） | `app/routers/hooks.py` |
 | 硬链接 | 在目标根下重建目录层级，逐文件 `os.link`；已处理且体积未变的文件夹跳过   | `app/processors/hardlink.py`                   |
 | 重命名 | 按处理器规则（命名段 + 正则）改目标侧文件名                              | `app/processors/engine.py`                     |
 | 记录   | 任务结果、逐文件链接记录、待办、日志                                     | `app/db.py`、`/data/logs/`                     |
@@ -55,7 +55,7 @@
 
 ```bash
 cd /path/to/work
-cp .env.example .env     # 至少改 PUID / PGID / MEDIA_ROOT
+cp .env.example .env     # 必改 MEDIA_ROOT（PUID/PGID 默认 auto，可不动）
 docker compose up -d --build
 docker compose ps        # 等 STATUS 出现 (healthy)
 ```
@@ -72,7 +72,7 @@ docker compose ps        # 等 STATUS 出现 (healthy)
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 跑任务、看结果、重试、重做单个作品                   | [`docs/guides/USER_GUIDE.md`](docs/guides/USER_GUIDE.md) §6–§7                                                                 |
 | 改命名规则 / 新建处理器 / 库级覆盖                   | [`docs/guides/USER_GUIDE.md`](docs/guides/USER_GUIDE.md) §5、[`docs/contracts/PROCESSORS.md`](docs/contracts/PROCESSORS.md) §3 |
-| 设置页逐项说明（回调、白名单、扫描、孤儿清理、日志） | [`docs/guides/USER_GUIDE.md`](docs/guides/USER_GUIDE.md) §8                                                                    |
+| 设置页逐项说明（回调、后缀白名单、扫描、孤儿清理、日志） | [`docs/guides/USER_GUIDE.md`](docs/guides/USER_GUIDE.md) §8                                                                    |
 | 媒体库删了会怎样 / 幂等性边界                        | [`docs/guides/USER_GUIDE.md`](docs/guides/USER_GUIDE.md) §10–§11                                                               |
 
 ## 5. 卷挂载：为什么只能「一个共同父挂载」
@@ -86,7 +86,7 @@ docker compose ps        # 等 STATUS 出现 (healthy)
 
 - 为什么必须这样：`linkat(2)` 先比较**挂载身份**，不同挂载一律 `EXDEV`，与 `st_dev` 是否相同无关。
 - 所以**不要**把源与目标拆成两条 bind —— 那样硬链接永远建不出来，且应用不会退化成复制。
-- 库编辑页的「验证」会做**实证 link 探针**，返回三态：`true`（可建）/ `false`（跨挂载）/ `null`（无法实证）。
+- 媒体库页 / 库编辑页的「预检」会做**实证 link 探针**，返回三态：`true`（可建）/ `false`（跨挂载）/ `null`（无法实证）。
 - 原理、自查命令与排错： [`docs/guides/DEPLOYMENT.md`](docs/guides/DEPLOYMENT.md) §2、§3；
   兼容性事实（含 btrfs 子卷等边界）： [`docs/contracts/COMPATIBILITY.md`](docs/contracts/COMPATIBILITY.md) §2。
 

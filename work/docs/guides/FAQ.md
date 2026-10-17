@@ -79,14 +79,17 @@ df -h /vol1/1000
 
 **为什么**：inode 号只在单个文件系统内唯一；更关键的是内核在真正建链接前还要比较源与目标的**挂载身份** —— 不是同一个挂载就**一律 EXDEV**，跟 `st_dev`、btrfs 子卷、ZFS dataset 都没有关系。所以"同一块盘"不等于"同一个挂载"。
 
-**你会看到**（任务详情 / 日志 / 校验页）：
+**你会看到**（建库 / 改库被拒时的报错；预检与任务告警里措辞可能不同，但同样点明"不是同一个挂载"）：
 
 ```
-跨挂载：源 /vol1/1000/Download/qbittorrent/Bangumi 与目标根 /vol1/1000/Library/Bangumi 不在同一个挂载，
-os.link 会返回 EXDEV。本应用不会回退为复制文件。
+跨挂载错误：源 /vol1/1000/Download/qbittorrent/Bangumi（挂载点 /vol1/1000，mount ID 26）与目标根
+/vol1/1000/Library/Bangumi（挂载点 /vol1/1000，mount ID 27）不是同一个挂载，os.link 会返回 EXDEV。
+本应用不会回退为复制文件。请把两个目录放到同一个宿主挂载下。
 ```
 
-这条判定在**运行前只警告、不硬拦**；真跑起来由逐文件结果给出结论 —— 失败就是 `link_failed`，不会悄悄复制一份冒充硬链接。
+（读不到挂载信息时会退到 `st_dev` 判据，文案开头是「跨文件系统错误：…」。）
+
+**建库 / 改库时这条判定直接拦下**（`400`，库存不进去）；对**已存在的库**跑任务时只告警、不硬拦 —— 真跑起来由逐文件结果给出结论，失败就是 `link_failed`，不会悄悄复制一份冒充硬链接。
 
 **怎么判断**（**【宿主机】**）：
 
@@ -136,7 +139,7 @@ rm -rf /vol1/1000/Download/qbittorrent/Bangumi/"Show A"    # 媒体库那份仍�
 
 ```bash
 curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
-  -H 'Content-Type: application/json' -d '{"orphan_cleanup_enabled":"false"}'
+  -H 'Content-Type: application/json' -d '{"orphan_cleanup_enabled": false}'
 ```
 
 > ⚠️ 这是本项目里最容易造成"我的媒体库文件不见了"的设置组合。打算清理下载盘就**先关**孤儿清理。关掉后，源已被删的旧记录仍在账本里，每轮只是 `stat` 一次，没有别的副作用。

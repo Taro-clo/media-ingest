@@ -107,10 +107,9 @@ services:
       # 数据目录（容器内）：SQLite、任务日志、库日志、secret.key、config。
       DATA_DIR: "/data"
       CONFIG_DIR: "/data/config"
-      # 首次建库时"允许的源/目标根目录"的初值**不在这里传**：应用未收到这两个 env 时
-      # 自动从 MEDIA_ROOT 派生（<MEDIA_ROOT>/Download 与 <MEDIA_ROOT>/Library），
-      # 所以换根目录只需要改上面一个锚点。只用于 DB 首次播种，已部署实例请在 WebUI
-      # 「设置」页修改（改环境变量不生效）；真要强制别的值就加同名环境变量。
+      # 源/目标目录不在这里配置：新建媒体库时在 WebUI 里自己填（容器内路径 = 宿主路径），
+      # 保存时会校验两者在同一挂载；应用不再有「允许的源/目标根目录」这类全局设置，
+      # 也不会从 MEDIA_ROOT 派生目录名 —— 你的目录叫什么、挂在哪都行，只要容器看得到。
       # 容器内监听端口（与下面 ports 用同一个锚点）。
       PORT: *port
       # ✏️ 挂载目录（媒体共同父目录；容器内路径 = 宿主路径）。改法见文件头，只改一处即可。
@@ -174,7 +173,7 @@ x-port: &port "${PORT:-18081}"
 - 必须是宿主上**已存在**的**绝对路径**。
 - 容器内路径 = 宿主路径（compose 里 `source` 与 `target` 引用同一个锚点），所以填宿主真实路径，**不要**填 `/data`、`/media` 这类容器内的路径。
 - 下载目录与媒体库必须在**同一个挂载点**内（硬链接不能跨挂载，否则报 `Invalid cross-device link`）。
-- 首次建库的源 / 目标根由应用从 `MEDIA_ROOT` 自动派生（`<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`），**不需要另配**；你的目录名不是 `Download` / `Library` 时，首次启动后在 WebUI「设置」页改。
+- 源目录 / 目标目录在**新建媒体库时**自己填（容器内路径 = 宿主路径），保存时会校验两者在**同一个挂载**；应用不再有全局的「允许的源/目标根目录」设置，目录名也不限定叫 `Download` / `Library`。
 
 **② 容器数据目录 `x-data-dir` —— 按需改**
 
@@ -228,7 +227,7 @@ docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) �
 1. 把 `work/` 整个目录（或发布源码包解出的内容）放到宿主机，例如 `/vol1/1000/Docker/media-ingest`；
    确认 `.env` 里的 `MEDIA_ROOT`（下载目录与媒体库的共同父目录，默认 `/vol1/1000`）在宿主上**已存在**。
 
-2. 复制配置，只按需求改 `MEDIA_ROOT`（其余默认值都能用：`PUID/PGID=auto` 自动识别、数据目录 `./data`、源/目标根从 `MEDIA_ROOT` 派生）：
+2. 复制配置，只按需求改 `MEDIA_ROOT`（其余默认值都能用：`PUID/PGID=auto` 自动识别、数据目录 `./data`；源/目标目录在新建媒体库时自己填）：
 
    ```bash
    cd /vol1/1000/Docker/media-ingest

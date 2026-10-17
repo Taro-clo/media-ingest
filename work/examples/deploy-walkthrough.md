@@ -76,7 +76,7 @@ docker inspect --format '{{json .State.Health}}' media-ingest
 > ⚠️ **沿用旧数据库时**：v1 存过「允许的源/目标根目录」两个设置项（`allowed_source_roots` / `allowed_target_roots`）。
 > v2 已**彻底删除**这两个设置项，启动迁移会把它们从 DB 里删掉，不会再有「旧根目录卡在 `/downloads` / `/library`」
 > 这类问题。源/目标目录现在只由每个媒体库自己的 `source_dir` / `target_dir` 决定，建库时校验两者在同一挂载
-> （跨挂载直接报错，见报错文案里的「不在同一个挂载」）。
+> （跨挂载直接报错，文案以「跨挂载错误」开头并点明不是同一个挂载。）
 
 ## 2. 建一个「番剧库」
 

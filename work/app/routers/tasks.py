@@ -194,7 +194,7 @@ def retry_task(task_id: int, _: str = Depends(security.require_user)) -> dict:
     if row["status"] not in RETRYABLE_STATUSES:
         raise conflict(
             f"只有失败或已取消的任务可以重试，当前状态为 {row['status']}。"
-            f"如需重新执行该媒体库，请使用「立即运行」。"
+            f"如需重新执行该媒体库，请使用「手动执行」。"
         )
     library_id = row["library_id"]
     if library_id is None:

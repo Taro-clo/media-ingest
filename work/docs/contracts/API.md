@@ -53,7 +53,7 @@
 所有错误响应体都是一个带 `detail` 的 JSON 对象，`detail` 是**中文可读信息**，可直接展示给用户：
 
 ```json
-{"detail": "目标目录 /vol1/1000/Library/Bangumi 不在允许的根路径内，当前允许：/vol1/1000/Library。"}
+{"detail": "跨挂载错误：源 /vol1/1000/Download/qbittorrent（挂载点 /vol1/1000/Download，mount ID 26）与目标根 /vol1/1000/Library（挂载点 /vol1/1000，mount ID 27）不是同一个挂载，os.link 会返回 EXDEV。本应用不会回退为复制文件。请把两个目录放到同一个宿主挂载下。"}
 ```
 
 | 状态码 | 含义 |
@@ -62,7 +62,7 @@
 | `201` | 创建成功（`POST /api/auth/setup`、`POST /api/libraries`、`POST /api/processors`） |
 | `202` | 已受理、异步执行（`POST /api/libraries/{id}/run`、`.../works/rename`、`POST /api/tasks/{id}/retry`） |
 | `204` | 成功且无响应体（logout、改密码、取消任务、删除任务历史） |
-| `400` | 请求参数不合法（传入值校验失败、缺 `confirm`、路径不在白名单、状态不允许该操作等） |
+| `400` | 请求参数不合法（传入值校验失败、缺 `confirm`、源/目标目录跨挂载或互相包含、状态不允许该操作等） |
 | `401` | 未登录 / 密码错误 / hook token 错误 |
 | `404` | 对象不存在（如库 id、任务 id 不存在） |
 | `409` | 状态冲突（实例已初始化、媒体库重名、媒体库已停用、内置处理器不可删、任务当前状态不允许该操作） |
@@ -240,7 +240,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `type` | string | **自由标签**（不是枚举）。`番剧` / `电影` / `纪录片` / `4K`… 随便填，只用于展示与统计；**不约束处理器** |
 | `processor_id` | string | **必须**是 `GET /api/processors` 里存在的处理器 id（内置三个见 §5.7） |
 | `enabled` | bool | 关掉后 qBittorrent 回调与扫描都不会再命中它 |
-| `source_dir` | string | **容器路径**，必须与 `target_dir` 在**同一个挂载**上（否则 `422`，建不了硬链接） |
+| `source_dir` | string | **容器路径**，必须与 `target_dir` 在**同一个挂载**上（否则 `400`，文案以「跨挂载错误」开头；建不了硬链接） |
 | `target_dir` | string | **容器路径**，必须与 `source_dir` 在**同一个挂载**上 |
 | `match_categories` | string[] | qBittorrent 分类白名单，空数组 = 不按分类匹配 |
 | `match_tags` | string[] | qBittorrent 标签白名单，空数组 = 不按标签匹配 |
@@ -393,10 +393,10 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 {"detail": [{"loc": ["body", "processor_id"], "msg": "处理器「bangumi-x」不存在。可用处理器：bangumi、hardlink_only、movie。", "type": "value_error.mlm"}]}
 ```
 
-`400`（路径越界）：
+`400`（跨挂载）：
 
 ```json
-{"detail": "源目录 /mnt/other/x 不在允许的根路径内，当前允许：/vol1/1000/Download/qbittorrent。"}
+{"detail": "跨挂载错误：源 /mnt/other/x（挂载点 /mnt/other，mount ID 27）与目标根 /vol1/1000/Download/qbittorrent（挂载点 /vol1/1000，mount ID 26）不是同一个挂载，os.link 会返回 EXDEV。本应用不会回退为复制文件。请把两个目录放到同一个宿主挂载下。"}
 ```
 
 `400`（互相包含）：
@@ -843,7 +843,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | 字段 | 取值 | 说明 |
 |---|---|---|
 | `kind` | `hardlink` / `rename` / `rename_hardlink` | 建链、重命名、或两者都做。由库的 `processor_id` 决定：`bangumi` / `movie` → `rename_hardlink`，`hardlink_only` → `hardlink`。§3.12 的「立即重命名」产生 `rename`（只跑重命名、不建链） |
-| `trigger` | `hook` / `scan` / `manual` / `retry` | qBittorrent 回调 / 扫描补偿 / 网页「立即运行」 / 重试 |
+| `trigger` | `hook` / `scan` / `manual` / `retry` | qBittorrent 回调 / 扫描补偿 / 网页「手动执行」 / 重试 |
 | `status` | `queued` / `running` / `success` / `failed` / `skipped` / `cancelled` | 见本节末尾 |
 | `scope` | `{"mode":"full","folder":null}` / `{"mode":"folder","folder":"Show A"}` / `{"mode":"works","folders":["Show A"]}` | 处理范围（见 §3.9 / §3.12） |
 | `payload` | object | 本次运行的原始参数（`library_name` / `force` / `processor`）；重试时原样复用并多一个 `retry_of`。§3.12 产生的任务里 `force=true` |
@@ -994,10 +994,10 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 - **请求体**：无
 - **行为**：用**同一份 payload**（同样的库、范围、force）**新建**一个任务；原任务记录保留不变。
 - **响应 `202`**：新 Task 对象（`trigger` 为 `"retry"`，`payload` 里多一个 `retry_of` 指向原任务）
-- **响应 `409`**（当前状态不允许重试）：`{"detail": "只有失败或已取消的任务可以重试，当前状态为 success。如需重新执行该媒体库，请使用「立即运行」。"}`
+- **响应 `409`**（当前状态不允许重试）：`{"detail": "只有失败或已取消的任务可以重试，当前状态为 success。如需重新执行该媒体库，请使用「手动执行」。"}`
 - **响应 `409`**（原任务的媒体库已被删除）：`{"detail": "原任务的媒体库已被删除，无法重试。请重新创建媒体库后手动运行。"}`
 
-> 成功过的任务**不能**重试：那只会产生一条重复的成功记录、掩盖真正的失败。想再跑一次，请用媒体库页的「立即运行」（可选 `force`）。队列是**串行**的，重试只是入队，不会打断正在跑的任务。
+> 成功过的任务**不能**重试：那只会产生一条重复的成功记录、掩盖真正的失败。想再跑一次，请用媒体库页的「手动执行」（可选 `force`）。队列是**串行**的，重试只是入队，不会打断正在跑的任务。
 
 ### 4.6 `POST /api/tasks/{id}/cancel` — 取消
 
@@ -1311,7 +1311,7 @@ docker exec media-ingest python3 -c "import json,urllib.request;print(json.dumps
   ],
   "log_level": "INFO",
   "queue": {"running_task_id": null, "queued_count": 0},
-  "scan": {"enabled": false, "interval_seconds": 900, "last_run_at": null, "next_run_at": null, "running": false},
+  "scan": {"enabled": true, "interval_seconds": 900, "last_run_at": null, "next_run_at": null, "running": false},
   "config": {
     "config_dir": "/data/config",
     "files": [{"path": "/data/config/libraries.yaml", "relative": "libraries.yaml", "exists": true,

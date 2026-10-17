@@ -31,7 +31,8 @@
 - **删除「允许的源/目标根目录」设置项**：`allowed_source_roots` / `allowed_target_roots` 从 DB、API、WebUI、
   健康检查与迁移代码中**整体删除**；不再有首次播种的自动派生，也不再读取 `DEFAULT_SOURCE_ROOT` /
   `DEFAULT_TARGET_ROOT`（两份 compose、`.env.example`、examples 里都已移除）。建库/改库时改为**直接校验
-  源与目标在同一挂载**（`paths.check_cross_mounts()`）。
+  源与目标在同一挂载**（`paths.check_cross_mounts()` 查互相包含，`paths.check_same_mount()` 判挂载，不同
+  挂载 ⇒ `400`）。
 - **健康检查从六项精简为四项**：`db`、`data_dir`、`processors`、`config`；`downloads_readable` /
   `library_writable` 两项删除（它们只探白名单第一个根，随白名单一起消失）。`docker/healthcheck.sh`、
   `scripts/acceptance-test.py` 与前端标签同步。

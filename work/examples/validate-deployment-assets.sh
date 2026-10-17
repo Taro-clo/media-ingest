@@ -532,7 +532,7 @@ print("  ---- release compose 事实小计：%d PASS / %d FAIL ----" % (PASS, FA
 sys.exit(0 if FAIL == 0 else 1)
 PYEOF
         then
-            ok "release compose 渲染后的事实清单（纯拉取/端口/双卷/auto 身份/派生根）"
+            ok "release compose 渲染后的事实清单（纯拉取/端口/双卷/auto 身份）"
         else
             ko "release compose 渲染后的事实清单与预期不符（见上）"
         fi
@@ -561,7 +561,7 @@ PYEOF
     if LC_ALL=C grep -q 'DEFAULT_SOURCE_ROOT\|DEFAULT_TARGET_ROOT' docker-compose.release.yml; then
         ko "release compose 又出现 DEFAULT_SOURCE_ROOT/DEFAULT_TARGET_ROOT（v2 已彻底删除这两个设置项）"
     else
-        ok "release compose 不显式传 DEFAULT_*（运行期从 MEDIA_ROOT 派生）"
+        ok "release compose 不显式传 DEFAULT_*（v2 已删除这两个设置项）"
     fi
 
     note "6c. 一键安装脚本已取消（回归护栏：安装方式 = 手动三步）"

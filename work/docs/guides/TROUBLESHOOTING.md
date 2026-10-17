@@ -148,13 +148,13 @@ docker exec -it media-ingest sh -c \
    ln "$f" /vol1/1000/Library/.mlm_probe_test && echo LINK-OK && rm -f /vol1/1000/Library/.mlm_probe_test || echo LINK-FAILED'
 ```
 
-**【浏览器】** 对出问题的库点「校验」，看 `same_filesystem` 与 `probe.note`。
+**【浏览器】** 对出问题的库点「预检」，看 `same_filesystem` 与 `probe.note`。
 
 **【解决步骤】**
 
 1. 把 compose 改成上面的**单一共同父挂载 + `/data`**（删掉 `/downloads:ro` 与 `/library` 两条），**【宿主机】** `docker compose up -d`（**不要**用 `restart`，它不重读 compose 文件）。
 2. 宿主上确认两个目录同一个挂载；容器内确认上面那条 `ln` 输出 `LINK-OK`。
-3. **【浏览器】** 点「校验」→ 应看到 `same_filesystem: true` 且 `probe.ok: true`；再点「立即运行」。**已"部分成功"的任务不用清理**：已建好的硬链接有效，重跑只补做失败的部分。
+3. **【浏览器】** 点「预检」→ 应看到 `same_filesystem: true` 且 `probe.ok: true`；再点「手动执行」。**已"部分成功"的任务不用清理**：已建好的硬链接有效，重跑只补做失败的部分。
 5. 源与目标确实放不进同一个挂载（两块物理盘）时，唯一合规做法是**把其中一方搬到另一方的挂载里**；本项目**不提供**跨挂载复制模式（见 [`FAQ.md`](FAQ.md) 第 1、3 问）。
 
 > 💡 `probe.note` 是给人看的中文可执行文案，别忽略。无法实证时 `same_filesystem` 是 `null` 而**不是** `true` —— 别把"无法实证"当成"通过"。
@@ -498,7 +498,7 @@ docker exec -it media-ingest python -c "import sqlite3;print(sqlite3.connect('/d
 
 - ✅ **重启后仍在 `queued` 的任务会自动继续执行**（不需要你点任何东西）。
 - ⚠️ **重启瞬间正在 `running` 的任务不会续跑**：进程被杀，那条记录停在 `running`（历史记录），既不会自动重试、也不能「重试」（`POST /api/tasks/{id}/retry` 只接受 `failed`/`cancelled`，否则 **409**）、不能取消（`running` 取消 **409**）、不能删除（**409**）。
-- 唯一善后方式：对**那个媒体库**点「立即运行」重新发起一次（已建好的硬链接会被跳过，见场景 16）。
+- 唯一善后方式：对**那个媒体库**点「手动执行」重新发起一次（已建好的硬链接会被跳过，见场景 16）。
 - 取消只在**还没开始执行**时有效（`queued` ⇒ 204）。
 
 **【诊断命令】**
@@ -511,8 +511,8 @@ docker compose exec media-ingest python -c "import sqlite3;c=sqlite3.connect('/d
 
 **【解决步骤】**
 
-1. `queued_count` 在下降 ⇒ 队列正在消费，**等它跑完**（大库可能很久）。别重复点「立即运行」，那只会多排一个任务。
-2. 看到「卡在 `running`」的那条：**不要试「重试」「取消」「删除」**（都会 409），直接对该库「立即运行」。
+1. `queued_count` 在下降 ⇒ 队列正在消费，**等它跑完**（大库可能很久）。别重复点「手动执行」，那只会多排一个任务。
+2. 看到「卡在 `running`」的那条：**不要试「重试」「取消」「删除」**（都会 409），直接对该库「手动执行」。
 3. `restart: unless-stopped` 建议保留 —— 它会自动拉起容器，队列随之续跑。
 4. 重启后任务立即大批失败且含 `File exists`：与重启无关，见场景 5。
 
@@ -531,7 +531,7 @@ docker compose exec media-ingest python -c "import sqlite3;c=sqlite3.connect('/d
 1. 正常排队 ⇒ 等前一个跑完（全量首跑几十分钟很正常）。
 2. **不要**加 `--workers 2` 或起第二个容器（会破坏串行保证，见场景 12 第 4 条）。
 3. 想立刻做某个库：取消排在它前面的 `queued` 任务；正在跑的那个**只能等**（应用不提供强杀）。
-4. `running_task_id` 指向一个其实没在跑的任务 ⇒ 重启容器后用「立即运行」重新发起（重启会自动唤醒队列消费）。
+4. `running_task_id` 指向一个其实没在跑的任务 ⇒ 重启容器后用「手动执行」重新发起（重启会自动唤醒队列消费）。
 5. 首跑太慢的根治办法是**分库/分文件夹**跑（`kind` 支持 `scope.folder` 只处理一个一级文件夹）。
 
 ---
@@ -612,7 +612,7 @@ docker compose exec media-ingest head -n 30 /data/config/processors/bangumi.yaml
 1. 按 `errors[]` 指的位置改回**合法 YAML**（缩进、`: ` 后要有空格、字符串里的 `{`/`}` 要引号）。改好后 5 秒内自动重新导入，`errors` 清空。
 2. 不知道原来是什么样：从 `/data` 的备份里取同一文件（[`DEPLOYMENT.md`](DEPLOYMENT.md) §7）。
 3. **不要**在「文件有错」的状态下反复保存同一份规则 —— 数据库侧的值是好的，继续手改文件只会让两边对不上。
-4. 改完确认：`errors` 为空 + 处理器编辑页能打开 + 随便点一次「校验」。
+4. 改完确认：`errors` 为空 + 处理器编辑页能打开 + 随便点一次「预检」。
 
 ---
 
@@ -670,11 +670,11 @@ docker compose exec media-ingest head -n 30 /data/config/processors/bangumi.yaml
 
 ## 21. `same_filesystem` 说可以，真跑却全部失败（预检假绿）
 
-**【现象】** 「校验」显示 `same_filesystem: true`、`probe.ok: true`，一点「立即运行」却整批 `EXDEV`（场景 1）。
+**【现象】** 「预检」显示 `same_filesystem: true`、`probe.ok: true`，一点「手动执行」却整批 `EXDEV`（场景 1）。
 
 **【原因】** 预检只是**探针**，不是全量证明：
 
-- **【浏览器】「校验」= `POST /api/libraries/{id}/validate?probe=true`，只对"这一对目录"采样**：从该库 `source_dir` 有界递归（深度 ≤3、最多 512 个条目、不跟随符号链接）取一个已存在的普通文件，`os.link` 到 `target_dir` 下的临时名 `.mlm_probe_*` 再立刻删掉 —— 源目录一个字节都不写。
+- **【浏览器】「预检」= `POST /api/libraries/{id}/validate?probe=true`，只对"这一对目录"采样**：从该库 `source_dir` 有界递归（深度 ≤3、最多 512 个条目、不跟随符号链接）取一个已存在的普通文件，`os.link` 到 `target_dir` 下的临时名 `.mlm_probe_*` 再立刻删掉 —— 源目录一个字节都不写。
 - 所以它能证明的是「这个样本、这两个目录能链」，**不能**证明「每个库的每个源/目标组合都同挂载」；多库时尤其明显。
 - 健康检查**没有**同挂载项（v2 起只保留 `db`/`data_dir`/`processors`/`config`）；`/api/system/info` 的 `same_filesystem` 是另一件事：它取**第一个媒体库**的 `source_dir` / `target_dir` 做只读概览（`probe=False`），跟其它库无关。
 - 早期版本把「判不了」当成 `true` —— 这正是"假绿"的成因（`work/tests/test_hardlink_precheck.py` 钉的就是这条）。
@@ -711,7 +711,7 @@ docker exec -it media-ingest sh -c 'f=$(find <source_dir> -maxdepth 3 -type f | 
 
 1. 升级后 `/api/system/health` 的 `checks` 只有四项（`db`/`data_dir`/`processors`/`config`），不再有那两个根目录检查项。
 2. 若 `mounts[]` 里仍出现 `/downloads`、`/library`，那是**媒体库记录**里的 `source_dir` / `target_dir`：到「媒体库」编辑该库，改成宿主真实路径（容器路径 = 宿主路径），保存时会自动校验同挂载。
-3. 改完跑一次该库的「校验」确认 `same_filesystem: true`（或实证 `probe.ok: true`）；完整清单见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §6.5。
+3. 改完跑一次该库的「预检」确认 `same_filesystem: true`（或实证 `probe.ok: true`）；完整清单见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §6.5。
 
 ---
 
