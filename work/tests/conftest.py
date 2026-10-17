@@ -13,7 +13,6 @@ from __future__ import annotations
 import contextlib
 import importlib
 import importlib.util
-import json
 import logging
 import os
 import sys
@@ -329,10 +328,10 @@ def config_dir(settings_env):
 def api_client(settings_env, downloads_root, library_root):
     """FastAPI TestClient（进入 with 以触发 lifespan → 队列线程）。
 
-    **宿主路径配置**：白名单就是 tmp 里的真实目录、``host_path_map`` 为空（``settings_env``
-    的默认）。这样库目录指向开发机上真实存在的目录，API 级 e2e **真能跑**（真的建出硬链接、
-    任务真的 success）。容器路径语义（``/downloads`` + ``HOST_PATH_MAP``）见
-    ``api_client_mapped``。
+    **宿主路径配置**：库目录就是 tmp 里的真实目录、``host_path_map`` 为空
+    （``settings_env`` 的默认）。这样库目录指向开发机上真实存在的目录，API 级 e2e
+    **真能跑**（真的建出硬链接、任务真的 success）。容器路径语义（``/downloads`` +
+    ``HOST_PATH_MAP``）见 ``api_client_mapped``。
     """
     pytest.importorskip("fastapi")
     pytest.importorskip("httpx")
@@ -345,8 +344,6 @@ def api_client(settings_env, downloads_root, library_root):
             "未找到 ASGI 应用（候选 app.main:app / app.api:app / app.server:app / app.web:app）"
         )
     db.init_db()
-    db.set_setting("allowed_source_roots", json.dumps([str(downloads_root)]))
-    db.set_setting("allowed_target_roots", json.dumps([str(library_root)]))
     with TestClient(app_object) as client:
         client.app_where = where  # type: ignore[attr-defined]
         yield client
@@ -354,12 +351,11 @@ def api_client(settings_env, downloads_root, library_root):
 
 @pytest.fixture
 def api_client_mapped(settings_env, downloads_root, library_root, monkeypatch):
-    """**容器路径配置**的 TestClient：白名单 ``['/downloads']``/``['/library']``，
-    ``host_path_map`` 把这两个容器前缀指到 tmp 目录。
+    """**容器路径配置**的 TestClient：``host_path_map`` 把容器前缀指到 tmp 目录。
 
-    用来验证应用的规范形态：宿主路径入库会被 ``paths.to_container`` 归一成容器路径、
-    白名单按容器根校验、越界报 400。**不在这里做真跑**——开发机上 ``/downloads`` 不是
-    真实目录（容器里才是），executor 直接用库里存的容器路径访问文件系统。
+    用来验证应用的规范形态：宿主路径入库会被 ``paths.to_container`` 归一成容器路径。
+    **不在这里做真跑**——开发机上 ``/downloads`` 不是真实目录（容器里才是），
+    executor 直接用库里存的容器路径访问文件系统。
     """
     pytest.importorskip("fastapi")
     pytest.importorskip("httpx")
@@ -380,8 +376,6 @@ def api_client_mapped(settings_env, downloads_root, library_root, monkeypatch):
         },
     )
     db.init_db()
-    db.set_setting("allowed_source_roots", json.dumps([H.CONTAINER_SOURCE_ROOT]))
-    db.set_setting("allowed_target_roots", json.dumps([H.CONTAINER_LIBRARY_ROOT]))
     with TestClient(app_object) as client:
         client.app_where = where  # type: ignore[attr-defined]
         yield client

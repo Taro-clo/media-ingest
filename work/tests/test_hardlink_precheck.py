@@ -551,22 +551,17 @@ def test_validate_error_and_warning_landing_is_frozen(
     assert proved_note in report["warnings"], report["warnings"]
 
 
-def test_system_info_mounts_are_a_dynamic_set_never_a_fixed_three(
+def test_system_info_mounts_are_a_dynamic_set_derived_from_libraries(
     api_client, api_login, downloads_root, library_root
 ):
-    """``mounts[]`` 是**动态集合**：固定两项 + 两个白名单根的最近已存在祖先。
+    """``mounts[]`` 是**动态集合**：固定两项 + 各媒体库源/目标目录的最近已存在祖先。
 
-    用户把 ``allowed_source_roots``/``allowed_target_roots`` 改成宿主真实路径后
-    挂载表跟着变（``app/routers/system.py:56``/``:59-75``）⇒ 断言必须用"集合包含"，
-    写成"恰好 N 条"会在正常部署下随机失败。采用单挂载形态后容器里**没有** ``/downloads``
-    与 ``/library``，它们也不许作为幽灵挂载点出现。
+    v2 起不再有「允许的源/目标根目录」设置，挂载点改为按媒体库推导
+    （``app/routers/system.py::mount_points``）⇒ 断言必须用"集合包含"，写成"恰好 N 条"
+    会在正常部署下随机失败。还没有媒体库时只剩固定两项；采用单挂载形态后容器里
+    **没有** ``/downloads`` 与 ``/library``，它们也不许作为幽灵挂载点出现。
     """
     api_login(api_client)
-
-    response = api_client.get("/api/system/info")
-    assert response.status_code == 200, response.text
-    mounts = response.json()["mounts"]
-    assert isinstance(mounts, list) and mounts, mounts
 
     eight_keys = {
         "container_path",
@@ -578,21 +573,33 @@ def test_system_info_mounts_are_a_dynamic_set_never_a_fixed_three(
         "exists",
         "read_only",
     }
-    for item in mounts:
-        assert set(item) == eight_keys, item
-        assert isinstance(item["read_only"], bool), item
 
     def normalized(path) -> str:
         return os.path.normcase(os.path.normpath(str(path)))
 
+    # ① 还没有媒体库：只有固定两项（没有可推导的媒体挂载点）。
+    response = api_client.get("/api/system/info")
+    assert response.status_code == 200, response.text
+    mounts = response.json()["mounts"]
+    assert isinstance(mounts, list) and mounts, mounts
+    for item in mounts:
+        assert set(item) == eight_keys, item
+        assert isinstance(item["read_only"], bool), item
     by_path = {normalized(item["container_path"]): item for item in mounts}
     assert len(by_path) == len(mounts), "同一个挂载点不许出现两次"
+    assert set(by_path) == {normalized("/data"), normalized("/data/config")}, sorted(by_path)
 
-    # 固定项：应用数据卷（/data 与 /data/config）。
-    assert {normalized("/data"), normalized("/data/config")} <= set(by_path), sorted(by_path)
-    # 动态项：两个白名单根（夹具里都已存在，"最近已存在祖先"就是它们本身）。
-    for root in (downloads_root, library_root):
-        assert normalized(root) in by_path, (sorted(by_path), root)
+    # ② 建一个媒体库后，它的源/目标目录（"最近已存在祖先"就是它们本身）出现在挂载表里。
+    source = downloads_root / "Bangumi"
+    target = library_root / "Bangumi"
+    source.mkdir(parents=True, exist_ok=True)
+    target.mkdir(parents=True, exist_ok=True)
+    _create_library(api_client, "挂载表动态库", source, target)
+
+    mounts = api_client.get("/api/system/info").json()["mounts"]
+    by_path = {normalized(item["container_path"]): item for item in mounts}
+    for path in (source, target):
+        assert normalized(path) in by_path, (sorted(by_path), str(path))
     # v1 的两条业务路径在单挂载形态下不再是挂载点。
     assert normalized("/downloads") not in by_path, sorted(by_path)
     assert normalized("/library") not in by_path, sorted(by_path)

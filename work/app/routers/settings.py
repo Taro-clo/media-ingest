@@ -22,7 +22,6 @@ from fastapi import APIRouter, Depends
 
 from .. import security
 from ..api_models import QbTestRequest, SettingsPatch
-from ..config import settings
 from ..db import all_settings, get_setting, set_setting
 from ..qbittorrent import latency_of
 from ..processors import engine, overrides
@@ -39,8 +38,6 @@ BOOL_KEYS = frozenset({"scan_enabled", "orphan_cleanup_enabled"})
 INT_KEYS = frozenset(
     {"scan_interval_seconds", "max_history", "max_task_log_lines", "config_sync_interval_seconds"}
 )
-#: 数组型设置键。
-LIST_KEYS = frozenset({"allowed_source_roots", "allowed_target_roots"})
 #: 后缀白名单型设置键：字符串数组，每项必须以 ``.`` 开头，**允许为空数组**。
 #: 空 = 未设置 ⇒ 各库沿用"库覆盖 → 处理器默认"（见 ``app/processors/overrides.py``）。
 SUFFIX_KEYS = frozenset({"rename_extensions"})
@@ -63,7 +60,7 @@ STR_KEYS = frozenset(
         "todo_kinds",
     }
 )
-KNOWN_KEYS = BOOL_KEYS | INT_KEYS | LIST_KEYS | SUFFIX_KEYS | REGEX_LIST_KEYS | STR_KEYS
+KNOWN_KEYS = BOOL_KEYS | INT_KEYS | SUFFIX_KEYS | REGEX_LIST_KEYS | STR_KEYS
 
 #: 服务端自己记账用的键：**不出现在** ``GET /api/settings`` 里（它们不是用户设置，
 #: 前端如果把它们渲染成表单字段，用户一保存就会被"未知的设置项"挡回来）。
@@ -96,8 +93,6 @@ VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
 #: 返回给前端的键顺序（固定顺序 = 设置页表单顺序，前端不用自己排）。
 OUTPUT_ORDER = (
-    "allowed_source_roots",
-    "allowed_target_roots",
     "scan_enabled",
     "scan_interval_seconds",
     "log_level",
@@ -121,16 +116,6 @@ def _parse_bool(raw: str | None, default: bool = False) -> bool:
     return str(raw).strip().lower() in ("1", "true", "yes", "on")
 
 
-def _parse_json_list(raw: str | None, default: list) -> list:
-    if raw is None:
-        return list(default)
-    try:
-        value = json.loads(raw)
-    except (ValueError, TypeError):
-        return list(default)
-    return value if isinstance(value, list) else list(default)
-
-
 def _parse_int(raw: str | None, default: int) -> int:
     try:
         return int(str(raw))
@@ -147,12 +132,6 @@ def settings_view() -> dict:
     """按契约形状读全量设置（值已按类型解析，§5.0 第 4 条）。"""
     stored = all_settings()
     view: dict = {
-        "allowed_source_roots": _parse_json_list(
-            stored.get("allowed_source_roots"), [settings.default_source_root]
-        ),
-        "allowed_target_roots": _parse_json_list(
-            stored.get("allowed_target_roots"), [settings.default_target_root]
-        ),
         "scan_enabled": _parse_bool(stored.get("scan_enabled"), False),
         "scan_interval_seconds": _parse_int(stored.get("scan_interval_seconds"), 900),
         "log_level": (stored.get("log_level") or "INFO").strip().upper() or "INFO",
@@ -198,17 +177,6 @@ def _coerce(key: str, value) -> str:
         if low is not None and not (low <= value <= high):
             raise bad_request(f"设置项 {key} 必须在 {low} 到 {high} 之间，收到 {value}。")
         return str(value)
-    if key in LIST_KEYS:
-        if not isinstance(value, list):
-            raise bad_request(f"设置项 {key} 需要字符串数组，收到 {type(value).__name__}。")
-        items: list[str] = []
-        for item in value:
-            if not isinstance(item, str) or not item.strip():
-                raise bad_request(f"设置项 {key} 的每一项都必须是非空字符串。")
-            items.append(item.strip().rstrip("/") or "/")
-        if not items:
-            raise bad_request(f"设置项 {key} 不能是空数组：至少需要一个允许的根路径。")
-        return json.dumps(items, ensure_ascii=False)
     if key in SUFFIX_KEYS:
         # 后缀白名单。空数组合法（= 未设置，各库沿用库覆盖/处理器默认）；
         # 非空时每一项都必须是 ".xxx" 形状，否则用户会得到一个"看起来生效、其实一个文件

@@ -24,7 +24,7 @@
 
 ## 0. 走完你会得到什么
 
-1. 容器 `(healthy)`，且 `/api/system/health` 的 `checks` 六项全 `true`；
+1. 容器 `(healthy)`，且 `/api/system/health` 的 `checks` 四项全 `true`；
 2. 一个「番剧库」：分类 `Anime` 的种子下载完成后，在 `<媒体库目录>/Bangumi/<一级文件夹名>/` 下建硬链接，集数文件改成 `标题 SxxExx`；
 3. `stat` 显示源与目标**设备号相同、inode 相同、链接数 = 2** —— 真硬链接，不是复制；媒体文件属主也没被那条 `chown -R /data` 碰过。
 
@@ -45,9 +45,9 @@ docker compose -f examples/docker-compose.nas.yml ps
 ### 启动后必须过的三条硬校验
 
 ```sh
-# ① 健康：必须 status=ok 且 checks 六项全 true。该端点永远返回 200，只看状态码等于没检查
+# ① 健康：必须 status=ok 且 checks 四项全 true。该端点永远返回 200，只看状态码等于没检查
 curl -s http://127.0.0.1:18081/api/system/health
-# 期望 {"status":"ok","checks":{"db":true,"data_dir":true,"downloads_readable":true,"library_writable":true,"processors":true,"config":true}}
+# 期望 {"status":"ok","checks":{"db":true,"data_dir":true,"processors":true,"config":true}}
 # ② 运行身份不是 root
 docker exec media-ingest sh -c 'id'          # 期望 uid=1000 gid=1001，即你的 <PUID>:<PGID>
 # ③ 两条挂载互相独立（挂载 ID 不同 ⇒ chown -R /data 碰不到媒体）
@@ -71,13 +71,12 @@ docker exec media-ingest sh -c 'w=$(mktemp -d /vol1/1000/Library/.mlm-probe.XXXX
 ```sh
 docker inspect --format '{{json .State.Health}}' media-ingest
 # Log[].Output 里有 healthcheck 明细，例如 checks.config = False → /data/config 对容器用户不可写
-#   checks.library_writable = False → 「允许的目标根目录」不存在/不可写；checks.downloads_readable = False → 源根不存在/不可读
 ```
 
-> ⚠️ **沿用旧数据库时最容易踩的一条**：v1 存的「允许的源/目标根目录」是 `/downloads`、`/library`。启动时会做一次**有界自动迁移**：
-> 存量值**逐字等于** v1 默认单值时才改写成**当前默认值** —— 源根 `/vol1/1000/Download`、目标根 `/vol1/1000/Library`。所以：
-> - 默认源根是**整个下载树** `/vol1/1000/Download`，**不是** `.../Download/qbittorrent`（两者同挂载，都能用）；
-> - 迁移**只看值不看路径**；手工填过别的路径（不等于 v1 单值）**不会**被迁移，去「设置」页或 `PUT /api/settings` 的 `allowed_source_roots` / `allowed_target_roots` 改；改 `.env` / compose 的 `DEFAULT_SOURCE_ROOT` / `DEFAULT_TARGET_ROOT` 对**已存在的 DB 不生效**（只是首次建库的初值）。细节见 [`DEPLOYMENT.md`](../docs/guides/DEPLOYMENT.md) §6.5；启动即 `degraded`（多半就是旧「允许根目录」还在）的排查见 [`TROUBLESHOOTING.md`](../docs/guides/TROUBLESHOOTING.md) §2。
+> ⚠️ **沿用旧数据库时**：v1 存过「允许的源/目标根目录」两个设置项（`allowed_source_roots` / `allowed_target_roots`）。
+> v2 已**彻底删除**这两个设置项，启动迁移会把它们从 DB 里删掉，不会再有「旧根目录卡在 `/downloads` / `/library`」
+> 这类问题。源/目标目录现在只由每个媒体库自己的 `source_dir` / `target_dir` 决定，建库时校验两者在同一挂载
+> （跨挂载直接报错，见报错文案里的「不在同一个挂载」）。
 
 ## 2. 建一个「番剧库」
 

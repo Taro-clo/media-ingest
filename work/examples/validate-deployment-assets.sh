@@ -17,7 +17,7 @@
 #   4. shellcheck（若装了）
 #   5. healthcheck.sh 的**判据**：用 python 标准库起桩服务做行为测试，验证它只认 body 里的
 #      `status=="ok"`（HTTP 200 不够 —— 该端点永远 200，degraded 也用 200 表达）、checks 里有
-#      false 要逐条打到 stderr、**六项必需 checks 缺任何一项也判 unhealthy**、**后端新加的未知
+#      false 要逐条打到 stderr、**四项必需 checks 缺任何一项也判 unhealthy**、**后端新加的未知
 #      checks 键不参与判定**（只留[提示]线索，避免升级后端即误报）、非 JSON 响应不抛栈、全健康时
 #      exit 0、无服务时非 0，以及**无 python/wget 时不许把 HTTP 200 当健康**（降级回退的边界）；
 #      外加对 healthcheck.sh 的静态断言（必须解析 JSON、不得依赖 curl 等）
@@ -185,12 +185,12 @@ except Exception:
         fi
     }
 
-    # /api/system/health 恒回 **6** 项 checks（PROCESSORS.md §9）。
+    # /api/system/health 恒回 **4** 项 checks（PROCESSORS.md §9）。
     # 下面所有桩响应都用真实形态，避免"用旧形态测新判据"的假绿。
     HC_EXTRA='"processors":true,"config":true'
 
-    # (1) status=degraded，且 checks.downloads_readable=false，但 HTTP 仍是 200
-    printf '%s' "{\"status\":\"degraded\",\"checks\":{\"db\":true,\"data_dir\":true,\"downloads_readable\":false,\"library_writable\":true,$HC_EXTRA}}" > "$WORK/stub_degraded.json"
+    # (1) status=degraded，且 checks.data_dir=false，但 HTTP 仍是 200
+    printf '%s' "{\"status\":\"degraded\",\"checks\":{\"db\":true,\"data_dir\":false,$HC_EXTRA}}" > "$WORK/stub_degraded.json"
     if run_stub "$WORK/stub_degraded.json"; then
         rc=0
         PORT="$HC_PORT" sh healthcheck.sh >"$WORK/hc.out" 2>"$WORK/hc.err" || rc=$?
@@ -200,8 +200,8 @@ except Exception:
         else
             ok "status=degraded（HTTP 200）被判 unhealthy（exit $rc）"
         fi
-        if LC_ALL=C grep -q "downloads_readable" "$WORK/hc.err"; then
-            ok "失败项逐条打印到 stderr（含 downloads_readable）"
+        if LC_ALL=C grep -q "data_dir" "$WORK/hc.err"; then
+            ok "失败项逐条打印到 stderr（含 data_dir）"
         else
             ko "stderr 没有逐条列出失败的 checks（部署排查会没线索）：$(head -c 200 "$WORK/hc.err")"
         fi
@@ -210,13 +210,13 @@ except Exception:
     fi
 
     # (2) status=ok 但某个 check 为 false → 也必须失败（不能只看 status 字段）
-    printf '%s' "{\"status\":\"ok\",\"checks\":{\"db\":true,\"data_dir\":true,\"downloads_readable\":false,\"library_writable\":true,$HC_EXTRA}}" > "$WORK/stub_checkfalse.json"
+    printf '%s' "{\"status\":\"ok\",\"checks\":{\"db\":true,\"data_dir\":false,$HC_EXTRA}}" > "$WORK/stub_checkfalse.json"
     if run_stub "$WORK/stub_checkfalse.json"; then
         rc=0
         PORT="$HC_PORT" sh healthcheck.sh >"$WORK/hc.out" 2>"$WORK/hc.err" || rc=$?
         stop_stub
         if [ "$rc" -eq 0 ]; then
-            ko "status=ok 但 checks.downloads_readable=false 时探针仍 exit 0（漏判）"
+            ko "status=ok 但 checks.data_dir=false 时探针仍 exit 0（漏判）"
         else
             ok "checks 里有 false 时判 unhealthy（exit $rc），不只依赖 status 字段"
         fi
@@ -225,7 +225,7 @@ except Exception:
     fi
 
     # (3) 完全健康 → 必须 exit 0（否则探针只会假阳性失败）
-    printf '%s' "{\"status\":\"ok\",\"checks\":{\"db\":true,\"data_dir\":true,\"downloads_readable\":true,\"library_writable\":true,$HC_EXTRA}}" > "$WORK/stub_ok.json"
+    printf '%s' "{\"status\":\"ok\",\"checks\":{\"db\":true,\"data_dir\":true,$HC_EXTRA}}" > "$WORK/stub_ok.json"
     if run_stub "$WORK/stub_ok.json"; then
         rc=0
         PORT="$HC_PORT" sh healthcheck.sh >"$WORK/hc.out" 2>"$WORK/hc.err" || rc=$?
@@ -277,7 +277,7 @@ except Exception:
 
     # (6) processors 是**必需**键：缺失（响应被裁剪）必须判 unhealthy。
     # 这一条钉住"缺键就是真异常、不许静默放过"的决定：后端已落地。
-    printf '%s' '{"status":"ok","checks":{"db":true,"data_dir":true,"downloads_readable":true,"library_writable":true,"config":true}}' > "$WORK/stub_missing_optional.json"
+    printf '%s' '{"status":"ok","checks":{"db":true,"data_dir":true,"config":true}}' > "$WORK/stub_missing_optional.json"
     if run_stub "$WORK/stub_missing_optional.json"; then
         rc=0
         PORT="$HC_PORT" sh healthcheck.sh >"$WORK/hc.out" 2>"$WORK/hc.err" || rc=$?
@@ -295,7 +295,7 @@ except Exception:
 
     # (7) 新增两项任一为 false（status 仍报 ok）也必须失败 —— 它们各自对应真事故：
     # processors=false ⇒ 内置处理器没加载（重命名规则坏了）；config=false ⇒ /data/config 不可写。
-    printf '%s' '{"status":"ok","checks":{"db":true,"data_dir":true,"downloads_readable":true,"library_writable":true,"processors":true,"config":false}}' > "$WORK/stub_config_false.json"
+    printf '%s' '{"status":"ok","checks":{"db":true,"data_dir":true,"processors":true,"config":false}}' > "$WORK/stub_config_false.json"
     if run_stub "$WORK/stub_config_false.json"; then
         rc=0
         PORT="$HC_PORT" sh healthcheck.sh >"$WORK/hc.out" 2>"$WORK/hc.err" || rc=$?
@@ -313,9 +313,9 @@ except Exception:
 
     # (8) 后端日后**新增**的 checks 键（这里模拟一个为 false 的未知键）不得判死容器。
     # 理由：未知键的 false 未必是事故，拿它判死会让"升级后端"直接变成"容器凭空 unhealthy"，
-    # 而这类事故排查成本极高。六项必需键齐全且为 true + status=ok 时，多出来的键只当[提示]。
+    # 而这类事故排查成本极高。四项必需键齐全且为 true + status=ok 时，多出来的键只当[提示]。
     # 若新键真出事，后端会把它算进 status="degraded"，那时我们照样拦得住。
-    printf '%s' '{"status":"ok","checks":{"db":true,"data_dir":true,"downloads_readable":true,"library_writable":true,"processors":true,"config":true,"future_unknown_check":false}}' > "$WORK/stub_extra_key.json"
+    printf '%s' '{"status":"ok","checks":{"db":true,"data_dir":true,"processors":true,"config":true,"future_unknown_check":false}}' > "$WORK/stub_extra_key.json"
     if run_stub "$WORK/stub_extra_key.json"; then
         rc=0
         PORT="$HC_PORT" sh healthcheck.sh >"$WORK/hc.out" 2>"$WORK/hc.err" || rc=$?
@@ -357,10 +357,10 @@ if [ -f healthcheck.sh ]; then
     else
         ok "未依赖 curl（解析用 python 标准库；wget 仅是无 python 时的降级回退）"
     fi
-    # 六项 checks **全部必需**，且不得再有"宽容降级"分支（见 PROCESSORS §9）
+    # 四项 checks **全部必需**，且不得再有"宽容降级"分支（见 PROCESSORS §9）
     HC_CODE="$(grep -v '^[[:space:]]*#' healthcheck.sh)"
     if printf '%s' "$HC_CODE" | grep -q '"processors", "config"'; then
-        ok "healthcheck.sh 把 processors/config 列为必需键（六项全必需）"
+        ok "healthcheck.sh 把 processors/config 列为必需键（四项全必需）"
     else
         ko "healthcheck.sh 没有把 processors/config 列入必需键（缺键应判 unhealthy）"
     fi
@@ -451,14 +451,9 @@ if len(media) == 1:
     check(str(env.get("MEDIA_ROOT")) == str(media[0].get("target")),
           "environment MEDIA_ROOT == 媒体卷挂载点（%r vs %r）"
           % (env.get("MEDIA_ROOT"), media[0].get("target")))
-# 源/目标根默认从 MEDIA_ROOT 派生：换任意根目录都不需要用户再填这两项。
-media_root = str(env.get("MEDIA_ROOT") or "")
-check(env.get("DEFAULT_SOURCE_ROOT") == media_root + "/Download",
-      "DEFAULT_SOURCE_ROOT 由 MEDIA_ROOT 派生（期望 %r，实际 %r）"
-      % (media_root + "/Download", env.get("DEFAULT_SOURCE_ROOT")))
-check(env.get("DEFAULT_TARGET_ROOT") == media_root + "/Library",
-      "DEFAULT_TARGET_ROOT 由 MEDIA_ROOT 派生（期望 %r，实际 %r）"
-      % (media_root + "/Library", env.get("DEFAULT_TARGET_ROOT")))
+# v2 删除了「源/目标根」设置项，也删掉了由 MEDIA_ROOT 自动派生：这两项连 env 都不该出现。
+check("DEFAULT_SOURCE_ROOT" not in env and "DEFAULT_TARGET_ROOT" not in env,
+      "源码 compose 不再传 DEFAULT_SOURCE_ROOT/DEFAULT_TARGET_ROOT（v2 已删除这两个设置项）")
 # 反向断言：CONFIG_SYNC_INTERVAL_SECONDS **不得**作为 env 出现。
 # 应用只读 DB 设置键 `config_sync_interval_seconds`（app/configstore.py:623、
 # app/processors/registry.py:402），留一个同名 env 会让人以为改了周期而实际不生效。
@@ -532,7 +527,7 @@ check("HOST_PATH_MAP" not in env,
 media_root = str(env.get("MEDIA_ROOT") or "")
 check(media_root.startswith("/"), "release MEDIA_ROOT 是绝对路径 -> %r" % (media_root,))
 check("DEFAULT_SOURCE_ROOT" not in env and "DEFAULT_TARGET_ROOT" not in env,
-      "release 不显式传 DEFAULT_SOURCE_ROOT/DEFAULT_TARGET_ROOT（运行期由 app/config.py 从 MEDIA_ROOT 派生）")
+      "release 不显式传 DEFAULT_SOURCE_ROOT/DEFAULT_TARGET_ROOT（v2 已彻底删除这两个设置项）")
 print("  ---- release compose 事实小计：%d PASS / %d FAIL ----" % (PASS, FAIL))
 sys.exit(0 if FAIL == 0 else 1)
 PYEOF
@@ -564,7 +559,7 @@ PYEOF
         ok "release compose 用 YAML 锚点单点定义媒体挂载/数据目录/端口（改一行即全部生效）"
     fi
     if LC_ALL=C grep -q 'DEFAULT_SOURCE_ROOT\|DEFAULT_TARGET_ROOT' docker-compose.release.yml; then
-        ko "release compose 又显式传了 DEFAULT_SOURCE_ROOT/DEFAULT_TARGET_ROOT（应由 app/config.py 从 MEDIA_ROOT 派生）"
+        ko "release compose 又出现 DEFAULT_SOURCE_ROOT/DEFAULT_TARGET_ROOT（v2 已彻底删除这两个设置项）"
     else
         ok "release compose 不显式传 DEFAULT_*（运行期从 MEDIA_ROOT 派生）"
     fi
@@ -665,7 +660,7 @@ check('CONFIG_SYNC_INTERVAL_SECONDS' not in code,
 # 反例：Dockerfile 里若写死 HOST_PATH_MAP={"/downloads":"/vol1/1000/Download/qbittorrent",…}，
 # 而容器路径 = 宿主路径、容器里没有 /downloads；app/paths.py::to_container() 的
 # 「宿主前缀反查」会把用户填的 /vol1/1000/Download/qbittorrent/Bangumi 改写成 /downloads/Bangumi，
-# 随即被 assert_allowed() 拦下（"源目录 /downloads/Bangumi 不在允许的根路径内"）。
+# 随即变成容器里不存在的路径（v2 已删掉当年的 assert_allowed() 白名单；现在会在建库/校验时报「源目录不存在」）。
 # 只有落在映射值前缀下的路径才中招 —— fixture 放别处时整套验收照样全绿，所以必须在结构上钉死。
 map_values = re.findall(r'HOST_PATH_MAP\s*=\s*(\S+)', code)
 check(all(v.strip("\"'") in ("{}", "") for v in map_values),

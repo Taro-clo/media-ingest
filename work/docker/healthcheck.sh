@@ -9,19 +9,16 @@
 #   下载卷没挂的容器，在 Docker 眼里依旧是 healthy，部署事故会被静默掩盖。
 #   正确判据：解析 JSON，**只有 `status == "ok"` 才 exit 0**。
 #
-# body 形态（六项）：
+# body 形态（四项）：
 #   {"status":"ok"|"degraded","checks":{"db":true,"data_dir":true,
-#                                       "downloads_readable":true,"library_writable":true,
 #                                       "processors":true,"config":true}}
 #   checks 各键对应的真实部署事故：
 #     db                 数据卷 /data 不可写，或 SQLite 打不开
 #     data_dir           /data 不存在或不可写
-#     downloads_readable 设置里"允许的源根目录"不可读（源卷没挂载或权限不对）
-#     library_writable   设置里"允许的目标根目录"不可写（硬链接写不进去）
 #     processors         三个内置处理器没能加载（PROCESSORS.md §9；处理规则坏了 = 重命名会错）
 #     config             CONFIG_DIR（/data/config）不可写 ⇒ 配置无法落盘、WebUI 永远不同步
 #   任一 false（或必需键缺失）都判 unhealthy，并把失败项逐条打印到 stderr 便于 `docker inspect`。
-#   六项**全部必需**：后端已落地（`GET /api/system/health` 恒回 6 项），缺键即真异常。
+#   四项**全部必需**：后端已落地（`GET /api/system/health` 恒回 4 项），缺键即真异常。
 #   后端日后新增的键**不参与判定**（只作为 [提示] 打到 stderr）：未知键的 false 未必是事故，
 #   拿它判死会让容器在升级后端后凭空 unhealthy；若新键真出事，后端会算进 status="degraded"。
 #
@@ -74,10 +71,9 @@ checks = data.get("checks") or {}
 
 # 必需键：缺一不可（异常响应里少了任何一个都算不健康）
 #
-# processors / config 也在必需项里（PROCESSORS.md §9）。后端 checks 恒为 6 项，
+# processors / config 也在必需项里（PROCESSORS.md §9）。后端 checks 恒为 4 项，
 # 所以「键不存在」是真异常，不再有宽容分支。
-required = ("db", "data_dir", "downloads_readable", "library_writable",
-            "processors", "config")
+required = ("db", "data_dir", "processors", "config")
 missing = [k for k in required if k not in checks]
 failed = [k for k in required if k in checks and not checks[k]]
 # 后端日后**新增**的 check 键：一律**不**参与判定。理由：新键的 false 未必等于事故

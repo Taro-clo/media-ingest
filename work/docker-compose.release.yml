@@ -69,7 +69,7 @@ services:
         source: *data-dir
         target: /data
 
-    # 健康检查沿用镜像 Dockerfile 里那一条（六项 checks 的解析也在镜像里）。
+    # 健康检查沿用镜像 Dockerfile 里那一条（四项 checks 的解析也在镜像里）。
 
     # 日志轮转：避免长期运行把磁盘写满。
     logging:

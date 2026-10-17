@@ -300,8 +300,8 @@ const zh = {
   // 源目录不做单独的 :ro 挂载（内核让「源单独 :ro」与「跨路径硬链接」互斥）；
   // 保证是「代码层不写源目录 + 任务前后逐文件核对」。
   'le.paths.hint': '容器内路径与宿主路径一致（单挂载形态）。源与目标必须落在同一个挂载内 —— 跨挂载时 link() 一律返回 EXDEV，任务会失败且绝不回退为复制。应用从不写源目录，任务开始前后会逐文件核对源目录是否被动过。',
-  'le.roots.source': '允许的源根目录：{roots}',
-  'le.roots.target': '允许的目标根目录：{roots}',
+  'le.source_dir.hint': '容器内路径，与宿主一致；必须与目标目录在同一个挂载内（跨挂载建不了硬链接）。',
+  'le.target_dir.hint': '容器内路径，与宿主一致；目录不存在时运行任务会自动创建。',
   'le.section.match': '匹配条件',
   'le.match.desc': '命中规则：每一个「已填写」的条件都必须满足（AND），任意一项不满足即本次回调不匹配。',
   'le.match.and_hint': '最容易踩的坑：本库填了「标签」，而 qBittorrent 回调没有带标签 —— 这一次回调不命中（不是「忽略标签条件」）。三个列表全空 ⇒ 不匹配任何下载（避免误抓）。',
@@ -544,18 +544,12 @@ const zh = {
   'set.system.log_level': '应用日志等级',
   'set.log.max_lines': '单任务日志上限（行）',
   'set.log.max_lines.hint': '超过该行数的日志会被截断，并在任务日志末尾写入一条 WARNING「日志已截断」。',
-  'set.section.roots': '允许的根目录（校验用）',
   // 全局后缀白名单 —— 一份清单对所有媒体库生效（留空 = 跟随处理器）。
   'set.section.rename_ext': '重命名后缀白名单',
   'set.rename_ext': '允许重命名的文件后缀',
   'set.rename_ext.hint': '每行一个，必须以点开头（如 .mkv）。留空 = 未设置，各媒体库沿用自己处理器里的清单。',
   'set.rename_ext.note': '这一份清单对所有媒体库生效，并优先于处理器里的后缀清单；某个库若在「本库规则覆盖」里另填了后缀，则那一个库以它的为准。',
   'set.err.rename_ext_format': '后缀必须以点开头，例如 .mkv。',
-  'set.roots.source': '允许的源根目录',
-  'set.roots.target': '允许的目标根目录',
-  // 单挂载形态下容器路径 = 宿主路径；并说明 DEFAULT_SOURCE_ROOT /
-  // DEFAULT_TARGET_ROOT 这两个 env 只是「首次建数据卷时的播种初值」，改 env 对已有 DB 不生效。
-  'set.roots.hint': '每行一个容器内绝对路径；单挂载形态下容器路径与宿主路径一致（默认源根是 /vol1/1000/Download，即整个下载树）。媒体库的 source_dir / target_dir 必须落在对应根目录之下，否则保存会被拒绝。首次建数据卷时这两项由 DEFAULT_SOURCE_ROOT / DEFAULT_TARGET_ROOT 播种；写在 .env 里对已存在的数据卷不生效 —— 正确改法就是在这里改。',
   'set.unsaved': '有未保存的修改',
   'set.reloaded': '已重新加载设置',
   'set.no_changes': '没有需要保存的修改',
@@ -565,11 +559,9 @@ const zh = {
   'set.health.title': '运行自检',
   'set.health.name': '检查项',
   'set.health.state': '结果',
-  'set.health.hint': '来自 /api/system/health（无需登录）：数据库、数据目录、下载目录可读、媒体库可写、处理器注册表、配置目录可写。',
+  'set.health.hint': '来自 /api/system/health（无需登录）：数据库、数据目录、处理器注册表、配置目录可写。',
   'set.health.db': '数据库',
   'set.health.data_dir': '数据目录',
-  'set.health.downloads': '下载目录可读',
-  'set.health.library': '媒体库可写',
   'set.health.processors': '处理器注册表',
   'set.health.config': '配置目录可写',
   'set.system.log_dir': '日志目录',
@@ -613,8 +605,6 @@ const zh = {
   'set.cfg.interval_card': '配置同步周期',
   'set.cfg.interval': '同步周期（秒）',
   'set.cfg.interval.hint': '默认 5 秒；填 0 表示只监视配置文件、不自动导入外部改动（范围 0–86400，由后端校验）。',
-  'set.err.roots_required': '至少保留一个根目录',
-  'set.err.roots_absolute': '根目录必须是容器内绝对路径（以 / 开头）',
 
   // ---------- 配置文件同步 ----------
   'cfg.title': '配置文件同步',

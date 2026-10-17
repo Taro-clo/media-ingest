@@ -172,10 +172,7 @@ CREATE TABLE IF NOT EXISTS link_records ({_LINK_RECORDS_COLUMNS});
 """
 
 DEFAULT_SETTINGS: dict[str, str] = {
-    # 白名单根的**首次播种初值**来自 env（见 config.DEFAULT_SOURCE_ROOT 的说明）。
     # 已存在的 DB 不会被这里覆盖（DEFAULT_SETTINGS 只在 init_db 时 INSERT OR IGNORE）。
-    "allowed_source_roots": json.dumps([settings.default_source_root]),
-    "allowed_target_roots": json.dumps([settings.default_target_root]),
     "scan_enabled": "false",
     "scan_interval_seconds": "900",
     "qbittorrent_url": "",
@@ -310,7 +307,7 @@ def json_setting(key: str, default):
 
 
 def list_setting(key: str, default: list | None = None) -> list:
-    """读一个 JSON 数组型设置（如 ``allowed_source_roots``），保证返回 ``list``。"""
+    """读一个 JSON 数组型设置（如 ``rename_extensions``），保证返回 ``list``。"""
     value = json_setting(key, default if default is not None else [])
     if isinstance(value, list):
         return [str(item) for item in value]
@@ -362,34 +359,24 @@ def _rebuild_libraries(conn: sqlite3.Connection) -> None:
         logger.warning("迁移后发现外键问题（请检查 tasks.library_id）：%s", [tuple(r) for r in broken])
 
 
-#: v1 的白名单根默认值（单值）。单挂载形态下容器里**不再存在** ``/downloads``
-#: 与 ``/library``，而 v1 老库里的这两个设置项恰好就是它们 ⇒ 不迁移的话
-#: ``downloads_readable``/``library_writable`` 恒为 false、容器开箱 unhealthy。
-V1_DEFAULT_SOURCE_ROOT = "/downloads"
-V1_DEFAULT_TARGET_ROOT = "/library"
+#: 把残留的 ``allowed_source_roots`` / ``allowed_target_roots`` 从设置表里删掉。
+#:
+#: v1 的「允许的根目录」白名单（默认 ``["/downloads"]`` / ``["/library"]``）在 v2 已彻底删除：
+#: 建库时改为直接校验源/目标在同一挂载、目录存在与不互相包含。旧键留着只会让
+#: ``GET /api/settings`` 把它们当“表外键”原样回吐，所以迁移时清掉。幂等。
 
 
-def _rewrite_v1_default_root(key: str, v1_value: str, new_value: str) -> str | None:
-    """把 ``key`` **恰好等于** v1 默认单值 ``[v1_value]`` 的存量值改写为 ``[new_value]``。
-
-    只在逐字等于 v1 默认单值时才动手：用户改过的（多个根、或别的路径）**一个字符都不动**，
-    否则会覆盖真实配置。解析不出 JSON 也一律不动。返回中文说明；未改动返回 ``None``。
-    幂等：改写后值不再等于 v1 默认单值，重复调用不会再次改写。
-    """
-    raw = get_setting(key, None)
-    if raw is None:
-        return None
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, ValueError):
-        return None
-    if parsed != [v1_value]:
-        return None
-    set_setting(key, json.dumps([new_value]))
-    return (
-        f"{key}: 已把 v1 默认根 {v1_value} 改写到新默认值 {new_value}"
-        f"（仅当存量值恰好是 v1 默认单值时才改写）"
-    )
+def _drop_legacy_root_settings() -> list[str]:
+    """删除 v1 遗留的两个白名单设置键；返回中文迁移说明（已无残留则为空列表）。"""
+    notes: list[str] = []
+    conn = get_conn()
+    for key in ("allowed_source_roots", "allowed_target_roots"):
+        if get_setting(key, None) is None:
+            continue
+        with conn:
+            conn.execute("DELETE FROM settings WHERE key=?", (key,))
+        notes.append(f"{key}: 已删除（v2 不再有允许的根目录白名单）")
+    return notes
 
 
 def _ensure_todos_table(conn: sqlite3.Connection) -> str | None:
@@ -461,14 +448,8 @@ def migrate() -> list[str]:
     if ledger_note:
         applied.append(ledger_note)
 
-    # v1 默认根改写（有界、幂等、只碰逐字等于 v1 默认单值的存量值）。
-    for key, v1_value, new_value in (
-        ("allowed_source_roots", V1_DEFAULT_SOURCE_ROOT, settings.default_source_root),
-        ("allowed_target_roots", V1_DEFAULT_TARGET_ROOT, settings.default_target_root),
-    ):
-        note = _rewrite_v1_default_root(key, v1_value, new_value)
-        if note:
-            applied.append(note)
+    # v2 彻底删除「允许的根目录」白名单：清掉 v1 遗留的两个设置键。
+    applied.extend(_drop_legacy_root_settings())
     return applied
 
 

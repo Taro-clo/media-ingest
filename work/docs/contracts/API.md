@@ -240,8 +240,8 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `type` | string | **自由标签**（不是枚举）。`番剧` / `电影` / `纪录片` / `4K`… 随便填，只用于展示与统计；**不约束处理器** |
 | `processor_id` | string | **必须**是 `GET /api/processors` 里存在的处理器 id（内置三个见 §5.7） |
 | `enabled` | bool | 关掉后 qBittorrent 回调与扫描都不会再命中它 |
-| `source_dir` | string | **容器路径**，必须落在 `allowed_source_roots` 内（默认 `["/vol1/1000/Download"]`） |
-| `target_dir` | string | **容器路径**，必须落在 `allowed_target_roots` 内（默认 `["/vol1/1000/Library"]`） |
+| `source_dir` | string | **容器路径**，必须与 `target_dir` 在**同一个挂载**上（否则 `422`，建不了硬链接） |
+| `target_dir` | string | **容器路径**，必须与 `source_dir` 在**同一个挂载**上 |
 | `match_categories` | string[] | qBittorrent 分类白名单，空数组 = 不按分类匹配 |
 | `match_tags` | string[] | qBittorrent 标签白名单，空数组 = 不按标签匹配 |
 | `match_path_prefixes` | string[] | `content_path` 前缀白名单，空数组 = 不按路径匹配 |
@@ -262,7 +262,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 
 **其他硬性校验**（违反一律 `422` 中文错误）:
 
-1. `source_dir` 必须在 `allowed_source_roots` 内；`target_dir` 必须在 `allowed_target_roots` 内；
+1. `source_dir` 与 `target_dir` 必须**在同一个挂载**上（`paths.check_cross_mounts()`，跨挂载 ⇒ `422`）；
 2. `source_dir` 与 `target_dir` **不得相同**，也**不得互相包含**；
 3. `processor_id` 必须存在（不存在 ⇒ `422`）；
 4. `log_file` 若提供，必须只是文件名、以 `.log` 结尾，且**不得与其它库已占用的名字撞车**（字段 `log_file`）；
@@ -461,7 +461,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 > **跑任务时则不硬拦**：`POST /api/libraries/{id}/run` 的前置判据即使得到 `false` 也只写 `Task.result.warnings[]` 并继续尝试，真正的成败由执行后的逐文件核对给出。
 
 > 📌 **`errors[]` / `warnings[]` 的出现条件**：
-> - **`errors[]`（同时 `ok=false`）**：① 路径超出白名单根；② 源与目标相同或互相包含；③ **源目录不存在或不是目录**；④ `same_filesystem is false`（此时**同一条判据文案进 `errors[]`**）；⑤ `processor_ok is false`（处理器已不存在）。
+> - **`errors[]`（同时 `ok=false`）**：① 源与目标相同或互相包含；② **源目录不存在或不是目录**；③ `same_filesystem is false`（此时**同一条判据文案进 `errors[]`**）；④ `processor_ok is false`（处理器已不存在）。
 > - **只 `warnings[]`（`ok` 仍为 `true`）**：① 目标目录当前不存在（跑任务时由建链阶段 `os.makedirs` 建）；② `same_filesystem is null` ⇒ `无法判定源/目标之间能否创建硬链接：` + 判据文案；③ `same_filesystem is true` 且判据文案非空（仅据挂载 ID / `st_dev` 的**未实证**结论）。
 > - **`probe`**：只有 `?probe=true`（默认）时才非 `null`，形状 `{ok, note}`，`ok` 与 `same_filesystem` 同为三态 `bool | null`。
 > - **建库永不因跨挂载被拦**：`POST /api/libraries` 与 `PUT /api/libraries/{id}` **不做**这个判据。跨挂载只影响预检结论与运行期 `warnings[]`，不阻断建库。
@@ -1053,8 +1053,6 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 
 ```json
 {
-  "allowed_source_roots": ["/vol1/1000/Download/qbittorrent"],
-  "allowed_target_roots": ["/vol1/1000/Library"],
   "scan_enabled": false,
   "scan_interval_seconds": 900,
   "log_level": "INFO",
@@ -1073,7 +1071,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 
 键的顺序是**固定**的（就是上面这个顺序，也是设置页表单的顺序），前端不用自己排。
 
-> 📌 这份响应就是**设置表里的可编辑键**（`app/routers/settings.py` 的 `settings_view()` 显式列出的那 **15 个**）。`config_dir` **不是设置项** —— 它只出现在 `GET /api/system/info`（§5.6），不要在 `PUT /api/settings` 里写它。
+> 📌 这份响应就是**设置表里的可编辑键**（`app/routers/settings.py` 的 `settings_view()` 显式列出的那 **13 个**）。`config_dir` **不是设置项** —— 它只出现在 `GET /api/system/info`（§5.6），不要在 `PUT /api/settings` 里写它。
 > 📌 反过来也有一个"表里有、这里没有"的键：`todo_kinds`（见下）**不会**出现在这份响应里（它虽登记在 `STR_KEYS`、可以用 `PUT` 写，但 `settings_view()` 的显式列表里没有它，而"表外键回传"回路又只放行**非** `KNOWN_KEYS` 的键）。当前值请查 `GET /api/todos/summary` 的 `disabled_kinds`（§5.9）。
 
 | 键 | 返回什么 | 为什么 |
@@ -1111,7 +1109,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 - **请求体**：与 `GET` **同样的真类型**（不是字符串！），可以只传一部分：
 
 ```json
-{"scan_enabled": true, "scan_interval_seconds": 600, "allowed_source_roots": ["/vol1/1000/Download/qbittorrent", "/vol1/1000/Download/qbittorrent2"]}
+{"scan_enabled": true, "scan_interval_seconds": 600, "rename_extensions": [".mkv", ".mp4"]}
 ```
 
 **校验规则（违反一律 `400`，`detail` 是中文说明）**
@@ -1120,7 +1118,6 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 |---|---|
 | 布尔（`scan_enabled` / `orphan_cleanup_enabled`） | 必须是 `true` / `false`；传字符串 `"true"` → 400 |
 | 整数（`scan_interval_seconds` / `max_history` / `max_task_log_lines` / `config_sync_interval_seconds`） | 必须是整数（`true` 会被拒 —— 布尔不能当 1 用），且落在区间内 |
-| 数组（`allowed_source_roots` / `allowed_target_roots`） | 必须是非空字符串数组，每项非空；空数组 → 400 |
 | 后缀数组（`rename_extensions`） | 字符串数组，每项**以点开头**（如 `".mkv"`）；大小写不敏感（`".MKV"` 归一化成 `".mkv"`）且**保序去重**；**空数组合法**（= 未设置，行为回落到处理器清单） |
 | 正则数组（`extras_patterns`） | 字符串数组，且**每一条都必须能被 `re.compile`**；有一条编不过就整体 `400`，中文点名第几条 + 模式原文（如 `第 2 条正则 'NCOP(' 无法编译：missing ), unterminated subpattern at position 4。…`）。**空数组合法 = 关闭 L3**；数组里出现空行 / 空字符串 ⇒ `400`（要关就写 `[]`，别写 `[""]`）；条目**保序去重** |
 | 字符串（`log_level` / `qbittorrent_*` / `hook_token` / `todo_kinds`） | 必须是字符串；`log_level` 只能是 `DEBUG` / `INFO` / `WARNING` / `ERROR`；`todo_kinds` 的**非法值不会 400**（服务端读的时候忽略非法项、必要时回落"全部启用"，见 §5.2）。⚠️ `config_dir` **不是设置项**，传它只会撞「表外的键名」 |
@@ -1150,7 +1147,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 `400`（未知键）：
 
 ```json
-{"detail": "未知的设置项：scan_enabeld。可用设置项：allowed_source_roots、allowed_target_roots、config_sync_interval_seconds、extras_patterns、hook_token、log_level、max_history、max_task_log_lines、orphan_cleanup_enabled、qbittorrent_password、qbittorrent_url、qbittorrent_username、rename_extensions、scan_enabled、scan_interval_seconds、todo_kinds。"}
+{"detail": "未知的设置项：scan_enabeld。可用设置项：config_sync_interval_seconds、extras_patterns、hook_token、log_level、max_history、max_task_log_lines、orphan_cleanup_enabled、qbittorrent_password、qbittorrent_url、qbittorrent_username、rename_extensions、scan_enabled、scan_interval_seconds、todo_kinds。"}
 ```
 
 > `log_level` 改完**立刻生效**（当场调整根 logger 与 `app` logger 的等级），不需要重启容器。
@@ -1159,8 +1156,6 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 
 | key | 默认值 | 说明 |
 |---|---|---|
-| `allowed_source_roots` | `["/vol1/1000/Download/qbittorrent"]` | 库的 `source_dir` 必须在此白名单内 |
-| `allowed_target_roots` | `["/vol1/1000/Library"]` | 库的 `target_dir` 必须在此白名单内 |
 | `hook_token` | 随机生成 | `/api/hooks/*` 的 token（三种传法见 §6） |
 | `scan_enabled` | `false` | 目录扫描补偿开关（回调漏了也能补上） |
 | `scan_interval_seconds` | `900` | 扫描周期（秒），区间 30–86400 |
@@ -1225,13 +1220,10 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 ```json
 {
   "status": "ok",
-  "checks": {"db": true, "data_dir": true, "downloads_readable": true,
-             "library_writable": true, "processors": true, "config": true},
+  "checks": {"db": true, "data_dir": true, "processors": true, "config": true},
   "details": {
     "db": "数据库可读：/data/mlm.db",
     "data_dir": "/data 可写。",
-    "downloads_readable": "/vol1/1000/Download/qbittorrent 可读。",
-    "library_writable": "/vol1/1000/Library 可写。",
     "processors": "内置处理器已加载：3/3。",
     "config": "/data/config 可写。"
   },
@@ -1244,7 +1236,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | 字段 | 说明 |
 |---|---|
 | `status` | 只有**所有 `checks` 为真且 `warnings` 为空**时才是 `"ok"`，否则 `"degraded"` |
-| `checks` | **六个**布尔项，见下表 |
+| `checks` | **四个**布尔项，见下表 |
 | `details` | 与 `checks` **同样的键**，每项一句中文说明；失败时这里写明具体原因 |
 | `warnings` | 非致命但值得注意的事：目前唯一来源是**文件系统编码不是 UTF-8**（读中文日志时可能抛 `UnicodeDecodeError`，请确认 `LANG=C.UTF-8` / `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8`） |
 | `version` / `time` | 应用版本号与本次探测时间（本地时间字符串） |
@@ -1255,19 +1247,20 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `processors` | 三个内置处理器都已成功加载（`processors/` 目录可解析） | 看 `GET /api/config` 的 `errors`；`/data/config/processors/*.yaml` 被手改坏时会出现提示 |
 | `config` | `/data/config` **可写**（真的建一个临时文件再删掉） | 检查 `data/` 卷属主（PUID/PGID）与磁盘空间 |
 | `data_dir` | `<DATA_DIR>` 可写（**真的建一个临时文件再删掉**，不是看权限位） | 检查数据卷挂载与属主（PUID/PGID） |
-| `downloads_readable` | `allowed_source_roots` 的**第一个**目录可读 | 检查源目录挂载 |
-| `library_writable` | `allowed_target_roots` 的**第一个**目录可写 | 检查目标目录挂载与属主 |
+
+> 📌 v2 起**不再有** `downloads_readable` / `library_writable` 两项：它们只探「允许的源/目标根目录」白名单的
+> 第一个根，而白名单机制已整体删除。源/目标目录是否**同挂载**改由**建库/改库时**校验（§3.2，跨挂载直接 `422`），
+> 运行期的问题体现在任务的 `warnings[]` / `link_failed` 里；`/api/system/info` 的 `same_filesystem` 仍是只读参考。
 
 > 这个接口**刻意永不抛异常**：数据库挂掉时它也正常返回 `200 + degraded`，而不是 `500` —— 探测脚本只认 HTTP 状态码与 `status` 字段。
-> ⚠️ **健康检查的判据是响应体而不是 HTTP 状态码**：`docker/healthcheck.sh` 会解析响应 JSON，**`status == "ok"` 且 `checks` 六个键全为 `true`** 才退出码 0，否则把 `[失败] checks.xxx = false` / `[缺失] checks.xxx 未出现在响应里` 逐条写到 stderr（`degraded` 的容器因此会真的显示 `(unhealthy)`）。容器显示 `unhealthy` 时的定位步骤见 [`docs/guides/DEPLOYMENT.md`](../guides/DEPLOYMENT.md) 的「容器显示 `unhealthy` 时怎么定位」一节。
+> ⚠️ **健康检查的判据是响应体而不是 HTTP 状态码**：`docker/healthcheck.sh` 会解析响应 JSON，**`status == "ok"` 且 `checks` 四个键全为 `true`** 才退出码 0，否则把 `[失败] checks.xxx = false` / `[缺失] checks.xxx 未出现在响应里` 逐条写到 stderr（`degraded` 的容器因此会真的显示 `(unhealthy)`）。容器显示 `unhealthy` 时的定位步骤见 [`docs/guides/DEPLOYMENT.md`](../guides/DEPLOYMENT.md) 的「容器显示 `unhealthy` 时怎么定位」一节。
 
-> 📌 **`downloads_readable` 与「只读」无关**：容器里**没有** `:ro` 挂载的源目录 —— 当前的单挂载形态要求**源与目标在同一个挂载**，二者互斥。源目录的不可变性改由「代码层不写源目录 + 任务前后逐文件源完整性核对」保证（见 §4.1 的 `Task.result.source_integrity`）。**这是「可验证的保证」，不是结构性保证。**
-> ⚠️ 若两个 roots 配的路径在这个容器里并不存在，`downloads_readable` / `library_writable` 这两项会是 `false` ⇒ `status` 变 `degraded`。
+> 📌 源目录的不可变性仍由「代码层不写源目录 + 任务前后逐文件源完整性核对」保证（见 §4.1 的 `Task.result.source_integrity`）。**这是「可验证的保证」，不是结构性保证。**
 
 **验证服务是否真的健康**（镜像里没有 `curl`，用宿主机的）：
 
 ```bash
-# 1) Docker 自己的判定（healthcheck.sh：status=="ok" 且 checks 六项全 true 才 healthy）
+# 1) Docker 自己的判定（healthcheck.sh：status=="ok" 且 checks 四项全 true 才 healthy）
 docker inspect --format '{{.State.Health.Status}}' media-ingest
 
 # 2) 看接口原始返回
@@ -1344,8 +1337,8 @@ docker exec media-ingest python3 -c "import json,urllib.request;print(json.dumps
 | `path_map.container_to_host` | `HOST_PATH_MAP` 原样（容器前缀 → 宿主前缀）。**默认是空表 = 恒等映射**（容器路径 = 宿主路径）；**它只是展示用的换算表**，填错不影响任何功能 |
 | `path_map.host_to_container` | 上面的**反向**表，前端不用自己反转 |
 | `ports` | 容器内监听端口与宿主发布端口（改 `.env` 的 `PORT` 时两者一起动） |
-| `mounts[]` | **受关注的挂载点**，动态算出：固定 `/data`、`/data/config`，再加上 `allowed_source_roots` / `allowed_target_roots` 各自**最近已存在的祖先**（固定项在前，去重）。元素 = `container_path` / `host_path`（按 `path_map` 换算，默认恒等）/ `device` / `fs_type` / `options` / `st_dev` / `exists` / `read_only`。⚠️ `device` / `fs_type` / `options` **只在该路径本身就是挂载点时**才有值（只认精确挂载点、不做前缀回溯），否则是空串 —— 例如 `/data/config` 通常只是 `/data` 卷里的子目录。`read_only` 取决于**实际挂载选项**里有没有独立的 `ro` 项（`errors=remount-ro` 不算），不是配置声明；源目录**不得**只读挂载。⚠️ `st_dev` 是 Linux `dev_t` 的**原始数值**，仅供展示与排查；在**非 Linux 环境**上可能超出 JavaScript 安全整数范围（`JSON.parse` 会丢精度），客户端**不应**据此做逻辑判断 |
-| `same_filesystem` | **概览对象**（与 §3.8 的同名字段不同层）：`source_path` / `target_path`（各取白名单第一个，缺省用 `DEFAULT_SOURCE_ROOT` / `DEFAULT_TARGET_ROOT`）、`source_dev` / `target_dev`、`downloads_vs_library`（**三态 `bool \| null`**）、`message`（**逐字**的中文判据文案）。⚠️ 本接口**刻意不做写入型实证探针**（走 `probe=False`：`/info` 会被 UI 反复轮询，不适合每次往目标目录写一个临时链接），所以它只有「挂载 ID 预筛 → 读不到 `/proc` 时降级 `st_dev`」两级：`downloads_vs_library: true` 只代表**预筛通过、未实证**，`false` 才是可靠负判据；权威实证结论看 §3.8 `validate?probe=true` 的 `probe` |
+| `mounts[]` | **受关注的挂载点**，动态算出：固定 `/data`、`/data/config`，再加上**每个媒体库**的 `source_dir` / `target_dir` 各自**最近已存在的祖先**（固定项在前，去重）。元素 = `container_path` / `host_path`（按 `path_map` 换算，默认恒等）/ `device` / `fs_type` / `options` / `st_dev` / `exists` / `read_only`。⚠️ `device` / `fs_type` / `options` **只在该路径本身就是挂载点时**才有值（只认精确挂载点、不做前缀回溯），否则是空串 —— 例如 `/data/config` 通常只是 `/data` 卷里的子目录。`read_only` 取决于**实际挂载选项**里有没有独立的 `ro` 项（`errors=remount-ro` 不算），不是配置声明；源目录**不得**只读挂载。⚠️ `st_dev` 是 Linux `dev_t` 的**原始数值**，仅供展示与排查；在**非 Linux 环境**上可能超出 JavaScript 安全整数范围（`JSON.parse` 会丢精度），客户端**不应**据此做逻辑判断 |
+| `same_filesystem` | **概览对象**（与 §3.8 的同名字段不同层）：取自**第一个媒体库**（`id` 升序）的 `source_dir` / `target_dir`，形状为 `source_path` / `target_path`、`source_dev` / `target_dev`、`downloads_vs_library`（**三态 `bool \| null`**）、`message`（**逐字**的中文判据文案）。**尚无媒体库时**为 `source_path` / `target_path` 空串、两个 dev 为 `null`、`downloads_vs_library: null`，`message` 为「尚无媒体库：源/目标目录的挂载与硬链接可行性要等建好第一个媒体库后才能判断。」⚠️ 本接口**刻意不做写入型实证探针**（走 `probe=False`：`/info` 会被 UI 反复轮询，不适合每次往目标目录写一个临时链接），所以它只有「挂载 ID 预筛 → 读不到 `/proc` 时降级 `st_dev`」两级：`downloads_vs_library: true` 只代表**预筛通过、未实证**，`false` 才是可靠负判据；权威实证结论看 §3.8 `validate?probe=true` 的 `probe` |
 | `processors` | `{total, builtin_ids, items[]}`：`total` = 处理器总数；`builtin_ids` = 内置处理器的 id 列表（固定顺序 `hardlink_only` → `bangumi` → `movie`）；`items[]` = 每个处理器的 `{id, name, kind, builtin}`（**`kind` 是 `rename` / `hardlink_only`**；是否内置看 `builtin`） |
 | `libraries[]` | **每个媒体库一条**摘要：`{id, name, source_dir, target_dir, processor_id, enabled}`，按 `id` 升序。⚠️ `rename_logs` 与它**同一个顺序**，前端可以按下标对齐两张表 |
 | `rename_logs[]` | **每个媒体库一条**的重命名日志状态：`{library_id, library_name, log_file, exists, entries, last_write}`。`log_file` 是**容器内绝对路径**（`/data/logs/<log_file>`）；`exists=false` ⇒ `entries=0` 且 `last_write=null`；`entries` 是该日志的**顶层键计数**（进程缓存未命中时读盘统计）；`last_write` 是**本地时间** `YYYY-MM-DD HH:MM:SS`（**不是** ISO/UTC） |

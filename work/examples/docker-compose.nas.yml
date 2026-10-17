@@ -57,19 +57,11 @@ services:
       # 说明与自查方式见 .env.example 第 5 节 / docs/contracts/ARCHITECTURE.md §6.1。
       # ⚠️ 容器路径 = 宿主路径 ⇒ 这里是**恒等映射**，只用于"非恒等部署"的逃生口。
       HOST_PATH_MAP: '{"/vol1/1000":"/vol1/1000"}'
-      # ---- 首次建库时"允许的源/目标根目录"的缺省值 ----
-      # ⚠️ 只用于 **DB 首次播种**（SQLite 里还没有这两条设置时）。DB 一旦存在，
-      #    改这里的 env **不生效**；那时唯一正确的改法是在 WebUI「设置」页（或
-      #    PUT /api/settings）里改"允许的源根目录 / 允许的目标根目录"。
-      # ⚠️ 源根缺省值是**整个下载树** /vol1/1000/Download（不是只到 qbittorrent 子目录）：
-      #    这样才能给 Download 下任意子目录建库。要收紧就在设置页改「允许的源根目录」。
-      DEFAULT_SOURCE_ROOT: "${DEFAULT_SOURCE_ROOT:-/vol1/1000/Download}"
-      DEFAULT_TARGET_ROOT: "${DEFAULT_TARGET_ROOT:-/vol1/1000/Library}"
       # ---- 媒体共同父挂载的容器内路径（与下面 volumes[0] 同一值）----
       # 只为让 entrypoint 做两条**只读**结构检查：MEDIA_ROOT 必须是绝对路径、不能是 /、
       # 不能等于 DATA_DIR，且 DATA_DIR 与 MEDIA_ROOT **不在同一挂载**里（否则启动时那条
       # `chown -R $DATA_DIR` 会递归进媒体挂载、改到媒体文件属主）。命中即拒绝启动。
-      # 应用代码**不读**它（应用读的是 DB 设置里的"允许的源/目标根目录"）。
+      # 应用代码**不读**它（应用只按媒体库自己的 source_dir / target_dir 处理文件）。
       MEDIA_ROOT: "${MEDIA_ROOT:-/vol1/1000}"
       SECRET_KEY: "${SECRET_KEY:-}"
       ADMIN_USERNAME: "${ADMIN_USERNAME:-}"
@@ -103,8 +95,9 @@ services:
     # 而 healthcheck.sh 读**容器内** $PORT（改 .env 的 PORT 时自动跟随），请求
     # /api/system/health 并解析 body：**只有 status=="ok" 且 checks 全 true 才 exit 0**
     # （该端点无论健康与否都返回 HTTP 200，所以只看状态码的探针永远不会失败）。
-    # checks 为六项，**全部必需**（缺键也判 unhealthy）：
-    # db / data_dir / downloads_readable / library_writable / processors / config。
+    # checks 为四项，**全部必需**（缺键也判 unhealthy）：
+    # db / data_dir / processors / config。
+    # （源/目标目录是否同挂载不在这里判；v2 起改在建库时校验。）
     # 这里若写死 CMD-SHELL 拼 ...:18081/...，PORT 一改就会探测旧端口 → 容器永远 unhealthy
     # （端口一律通过 ${PORT} 插值，不要写死数字）。
     # 需要临时调探针间隔时，只覆写参数、别覆写 test：
@@ -123,7 +116,7 @@ services:
 #   docker compose -f examples/docker-compose.nas.yml config >/dev/null && echo "compose 配置合法"
 #   curl -s http://127.0.0.1:18081/api/system/health
 #      期望 {"status":"ok","checks":{"db":true,"data_dir":true,
-#            "downloads_readable":true,"library_writable":true,"processors":true,"config":true}}
+#            "processors":true,"config":true}}
 #   docker exec media-ingest sh -c 'id'
 #      期望显示 uid=1000 gid=1001
 #   docker inspect media-ingest --format '{{json .Mounts}}' | tr ',' '\n' | grep -o '"Destination":"[^"]*"'

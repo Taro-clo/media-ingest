@@ -95,7 +95,7 @@ ENV DATA_DIR=/data \
 EXPOSE 18081
 
 # ---- 健康检查 ---------------------------------------------------------------
-# 请求 /api/system/health 并解析 body 里的六项 checks（详见 docker/healthcheck.sh）。
+# 请求 /api/system/health 并解析 body 里的四项 checks（详见 docker/healthcheck.sh）。
 HEALTHCHECK --start-period=20s --interval=30s --timeout=10s --retries=3 \
     CMD ["/bin/sh", "/usr/local/bin/mlm-healthcheck"]
 

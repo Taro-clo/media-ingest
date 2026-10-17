@@ -111,7 +111,7 @@ def _sse_events(client, url: str, limit: int = 2000) -> list[tuple[str, dict]]:
 
 
 def test_health_needs_no_auth_and_reports_every_named_check(api_client):
-    """**六项**自检：`db / processors / config / data_dir / downloads_readable / library_writable`。
+    """**四项**自检：`db / processors / config / data_dir`。
 
     自检项必须真实而不是恒为 true：``processors`` 查库里的处理器表，
     ``config`` 真写一遍 ``config_dir``（YAML 配置面）。
@@ -124,8 +124,6 @@ def test_health_needs_no_auth_and_reports_every_named_check(api_client):
         "processors",
         "config",
         "data_dir",
-        "downloads_readable",
-        "library_writable",
     }, body
     assert all(body["checks"].values()), body
     assert set(body["details"]) == set(body["checks"]), body

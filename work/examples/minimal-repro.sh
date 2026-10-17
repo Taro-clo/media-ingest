@@ -133,8 +133,6 @@ docker run -d --name "$CNAME" \
     -e PORT="$PORT" \
     -e CONFIG_DIR=/data/config \
     -e MEDIA_ROOT="$WORK" \
-    -e DEFAULT_SOURCE_ROOT="$SRC" \
-    -e DEFAULT_TARGET_ROOT="$DST" \
     -e ADMIN_USERNAME="$ADMIN_USER" \
     -e ADMIN_PASSWORD="$ADMIN_PASS" \
     -v "$WORK:$WORK" \

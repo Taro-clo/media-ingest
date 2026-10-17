@@ -50,11 +50,6 @@ services:
       DATA_DIR: "/data"
       # 配置文件镜像目录（在 /data 卷内，无需单独挂载）。
       CONFIG_DIR: "${CONFIG_DIR:-/data/config}"
-      # 首次建库时"允许的源/目标根目录"的初值：默认跟随 MEDIA_ROOT 派生
-      # （<MEDIA_ROOT>/Download 与 <MEDIA_ROOT>/Library），所以换根目录不用另填。
-      # 只用于 DB 首次播种，已部署实例请在 WebUI「设置」页修改（改环境变量不生效）。
-      DEFAULT_SOURCE_ROOT: "${DEFAULT_SOURCE_ROOT:-${MEDIA_ROOT:-/vol1/1000}/Download}"
-      DEFAULT_TARGET_ROOT: "${DEFAULT_TARGET_ROOT:-${MEDIA_ROOT:-/vol1/1000}/Library}"
       # 容器内监听端口；必须与下面 ports 的容器侧一致，故两者用同一个表达式。
       PORT: "${PORT:-18081}"
       # 容器路径 -> 宿主路径映射（JSON）。单挂载形态下容器路径 = 宿主路径，
@@ -82,7 +77,7 @@ services:
       #    想集中管理就设 MLM_DATA_DIR=/绝对路径（该目录需已存在）。
       - "${MLM_DATA_DIR:-./data}:/data"
 
-    # 健康检查沿用镜像 Dockerfile 里那一条（真生效的是它，含六项 checks 的解析），
+    # 健康检查沿用镜像 Dockerfile 里那一条（真生效的是它，含四项 checks 的解析），
     # 这里不重复声明以免端口/参数错位。临时调整探针参数时再覆写，见 DEPLOYMENT.md。
 
     # 日志轮转：避免长期运行把磁盘写满。

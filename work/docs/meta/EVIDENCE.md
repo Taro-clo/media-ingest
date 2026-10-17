@@ -75,7 +75,7 @@
 |---|---|
 | `docker compose config` | exit 0、stderr 空；`18081:18081` 两侧同源；恰好 2 条 bind（媒体共同父挂载 + 数据卷） |
 | `docker compose build` / `up -d` | exit 0，容器 `Up (healthy)` |
-| `docker inspect` → `.State.Health` | `{"Status":"healthy","FailingStreak":0,…}`；健康检查六项 `db / data_dir / downloads_readable / library_writable / processors / config` 全 true |
+| `docker inspect` → `.State.Health` | `{"Status":"healthy","FailingStreak":0,…}`；健康检查四项 `db / data_dir / processors / config` 全 true |
 | `curl /api/system/health` | `{"status":"ok","checks":{…全部 true},"warnings":[],"version":…}`（该端点**永远 HTTP 200**，不能只看状态码） |
 | 非 root | `/proc/1/status` 的 `Uid`/`Gid` 等于 `PUID`/`PGID`。镜像 `Config.User` 为空、降权由 entrypoint 内 `gosu` 完成 ⇒ `docker exec` 默认是 **root shell**，要以应用身份操作用 `docker exec -u 1000:1001` |
 

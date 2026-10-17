@@ -45,7 +45,7 @@ ADMIN_PW = _env("MLM_ADMIN_PW", "")  # 同上
 CONTAINER = _env("MLM_CONTAINER", "media-ingest-test")
 EXPECT_VERSION = _env("MLM_EXPECT_VERSION", "1.0.0")
 SHORT = EXPECT_VERSION.replace(".", "")
-HEALTH_KEYS = ["db", "data_dir", "downloads_readable", "library_writable", "processors", "config"]
+HEALTH_KEYS = ["db", "data_dir", "processors", "config"]
 OUT = Path(_env("MLM_OUT", "/tmp/mlm-acceptance"))
 OUT.mkdir(parents=True, exist_ok=True)
 
@@ -289,9 +289,9 @@ def main():
     st, health = req("GET", "/api/system/health")
     hc = unwrap(health)
     checks = hc.get("checks") or {}
-    check("A3 health 六项（processors/config 全必需）", set(checks.keys()) == set(HEALTH_KEYS),
+    check("A3 health 四项（processors/config 全必需）", set(checks.keys()) == set(HEALTH_KEYS),
           f"keys={sorted(checks.keys())}")
-    check("A4 health 六项全 true", all(checks.get(k) is True for k in HEALTH_KEYS), json.dumps(checks, ensure_ascii=False))
+    check("A4 health 四项全 true", all(checks.get(k) is True for k in HEALTH_KEYS), json.dumps(checks, ensure_ascii=False))
     check(f"A5 版本号 {EXPECT_VERSION}", hc.get("version") == EXPECT_VERSION, f"version={hc.get('version')}")
     report["health"] = hc
 

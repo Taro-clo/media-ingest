@@ -261,8 +261,8 @@ def test_b9_identity_path_map_cannot_be_overridden_by_the_image_or_compose(
     而单挂载形态是「共同父目录单挂载」⇒ 容器路径 = 宿主路径、容器里没有 ``/downloads``。
     于是 ``app/paths.py::to_container()`` 的规则 2（拿映射的**值**做宿主前缀反查）会把用户在
     WebUI 里填的真实路径 ``/vol1/1000/Download/qbittorrent/Bangumi`` 改写成
-    ``/downloads/Bangumi``，随即被 ``assert_allowed()`` 拦下：
-    「源目录 /downloads/Bangumi 不在允许的根路径内，当前允许：/vol1/1000/Download。」
+    ``/downloads/Bangumi``（v1 还会被当年的 ``assert_allowed()`` 白名单拦下；
+    该白名单机制已整体删除，这里只留事故记录）。
 
     这个坑**只有「落在映射值前缀之下」的路径才中招**：fixture 放在
     ``/vol1/1000/Docker/media-ingest/testmedia`` 时规则 2 不命中、路径原样通过，

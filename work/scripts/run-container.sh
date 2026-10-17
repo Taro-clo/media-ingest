@@ -45,5 +45,5 @@ docker run -d --name "$C" -p "$PORT:$PORT" \
 
 sleep 12
 docker ps --filter "name=^${C}$" --format 'CONTAINER {{.Names}} | {{.Status}} | {{.Ports}}'
-echo "--- 健康检查（应输出 status=ok 且六项全 true）---"
+echo "--- 健康检查（应输出 status=ok 且四项全 true）---"
 docker exec "$C" /usr/local/bin/mlm-healthcheck && echo HEALTHCHECK_RC=0 || echo HEALTHCHECK_RC=$?

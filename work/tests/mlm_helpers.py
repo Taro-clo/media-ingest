@@ -17,9 +17,9 @@ from pathlib import Path
 # --------------------------------------------------------------------------- 基础
 
 
-#: 应用的**规范形态**是容器路径：``allowed_source_roots`` 默认 ``["/downloads"]``、
+#: 应用的**规范形态**是容器路径：``HOST_PATH_MAP`` 把容器前缀映射到宿主目录，
 #: 库的 ``source_dir``/``target_dir`` 在入库前会被 ``paths.to_container`` 归一成容器形态
-#: （见 ``app/routers/libraries.py:50-66``）。API 测试用这两个常量，不要用 tmp 宿主路径。
+#: （见 ``app/routers/libraries.py``）。API 测试用这两个常量，不要用 tmp 宿主路径。
 CONTAINER_SOURCE_ROOT = "/downloads"
 CONTAINER_LIBRARY_ROOT = "/library"
 

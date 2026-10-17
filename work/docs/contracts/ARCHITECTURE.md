@@ -136,7 +136,6 @@ CREATE UNIQUE INDEX idx_link_records_library_folder ON link_records(library_id, 
 
 | key | 默认 | 说明 |
 |---|---|---|
-| `allowed_source_roots` / `allowed_target_roots` | `[DEFAULT_SOURCE_ROOT]` / `[DEFAULT_TARGET_ROOT]`（env，**只影响首次播种**） | 库路径必须在其内 |
 | `hook_token` | 随机 | `/api/hooks/*` 的 Bearer token |
 | `scan_enabled` / `scan_interval_seconds` | `false` / `900` | 目录扫描补偿 |
 | `qbittorrent_url` / `_username` / `_password` | `""` | 仅状态展示与连通性测试（触发一律走回调） |
@@ -165,8 +164,8 @@ CREATE UNIQUE INDEX idx_link_records_library_folder ON link_records(library_id, 
   `unprocessable()` / `unprocessable_many()`）—— **字段名在 `loc` 里，没有 `field` 键**；
   `{"field":…, "message":…}` 只出现在 `POST /api/processors/validate` 的 **200** 响应（
   `app/processors/spec.py::iter_errors()`，该端点**不落库**）。
-- `source_dir` 必须在 `allowed_source_roots` 内、`target_dir` 在 `allowed_target_roots` 内；两者不得相同、
-  不得互相包含。
+- `source_dir` 与 `target_dir` 都是**容器路径**，不做前缀白名单校验；建库/改库时由
+  `paths.check_cross_mounts()` 校验两者**不得相同、不得互相包含**，并要求能建硬链接（同一挂载）。
 
 ---
 
@@ -255,8 +254,6 @@ class Settings:                    # pydantic 风格，用 stdlib 读 os.environ
     data_dir: str                  # env DATA_DIR, default "/data"
     db_path: str                   # <data_dir>/mlm.db
     config_dir: str                # env CONFIG_DIR, default "/data/config"
-    default_source_root: str       # env DEFAULT_SOURCE_ROOT（**只用于首次播种**）
-    default_target_root: str       # env DEFAULT_TARGET_ROOT（**只用于首次播种**）
     host_path_map: dict[str,str]   # env HOST_PATH_MAP (JSON) 容器->宿主，**仅用于展示**
     port: int                      # env PORT, default 18081
     secret_key: str                # env SECRET_KEY 或 <data_dir>/secret.key 自动生成
@@ -282,7 +279,7 @@ settings: Settings                 # 单例
 
 ### 6.4 `app/paths.py`
 
-- `to_host`/`to_container`/`normalize`/`is_inside`/`existing_ancestor`/`assert_allowed`/`check_cross_mounts`/`check_same_filesystem`/`probe_cross_filesystem`/`find_sample_file`/`cleanup_probe_leftovers`/`mount_id_for`/`check_same_mount`/`check_hardlink_support`/`snapshot_source_tree`/`verify_source_tree`。语义见 §2
+- `to_host`/`to_container`/`normalize`/`is_inside`/`existing_ancestor`/`check_cross_mounts`/`check_same_filesystem`/`probe_cross_filesystem`/`find_sample_file`/`cleanup_probe_leftovers`/`mount_id_for`/`check_same_mount`/`check_hardlink_support`/`snapshot_source_tree`/`verify_source_tree`。语义见 §2
 
 ### 6.5 `app/script_adapter.py`
 

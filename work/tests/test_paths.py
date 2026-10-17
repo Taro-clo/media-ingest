@@ -5,7 +5,7 @@
 * 纯函数语义：``normalize`` / ``is_inside`` / ``to_host`` / ``to_container`` /
   ``existing_ancestor`` —— 全是字符串运算，任何平台都能跑；
 * 文件系统语义：``check_same_filesystem`` / ``check_same_mount`` /
-  ``check_hardlink_support`` / ``check_cross_mounts`` / ``assert_allowed`` /
+  ``check_hardlink_support`` / ``check_cross_mounts`` /
   ``probe_cross_filesystem`` / ``snapshot_source_tree`` / ``verify_source_tree`` ——
   用 ``tmp_path`` 造真实目录，跨设备用例找不到第二块设备时**跳过**而不是假装通过。
 
@@ -303,31 +303,6 @@ def test_cross_mounts_accepts_siblings_with_a_shared_prefix(paths_mod):
     assert ok is True, f"分量比较不得把 Bangumi2 当成 Bangumi 的子目录：{error}"
     ok, error = paths_mod.check_cross_mounts("/downloads/Bangumi", "/library/Bangumi")
     assert ok is True and error is None
-
-
-# --------------------------------------------------------------------------- #
-# assert_allowed
-# --------------------------------------------------------------------------- #
-def test_assert_allowed_accepts_a_path_under_any_root(paths_mod):
-    roots = ["/downloads", "/library"]
-    assert paths_mod.assert_allowed("/downloads/Bangumi/Show A", roots, "源目录") is None
-    assert paths_mod.assert_allowed("/library", roots, "目标目录") is None
-
-
-def test_assert_allowed_rejects_an_outside_path_with_a_helpful_message(paths_mod):
-    with pytest.raises(ValueError) as info:
-        paths_mod.assert_allowed("/etc/passwd", ["/downloads"], "源目录")
-    message = str(info.value)
-    assert "源目录" in message and "不在允许的根路径内" in message
-    assert "/downloads" in message, "要把当前允许的根列出来，人才知道怎么改配置"
-
-
-def test_assert_allowed_rejects_everything_when_no_root_is_configured(paths_mod):
-    with pytest.raises(ValueError) as info:
-        paths_mod.assert_allowed("/downloads/Bangumi", [], "目标目录")
-    assert "（未配置）" in str(info.value)
-    with pytest.raises(ValueError):
-        paths_mod.assert_allowed("/downloads/Bangumi", None, "目标目录")
 
 
 # --------------------------------------------------------------------------- #

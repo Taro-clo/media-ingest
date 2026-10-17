@@ -426,8 +426,9 @@ libraries:
   （初值见 `work/app/db.py` 的 `DEFAULT_SETTINGS`，区间 0–86400，`0` = 关闭自动导入）。
 - `/data/config` 位于 `/data` 卷内，**无需额外挂载**；Dockerfile 的 `COPY app/` 只带入应用自己的代码，pip 依赖含
   `PyYAML==6.0.3`；`docker/entrypoint.sh` 启动自检会检查 `/data/config` 可写等条件。
-- `HEALTHCHECK` 共**六项**：`db`、`data_dir`、`downloads_readable`、`library_writable`、`processors`（三个内置处理器已加载）、
-  `config`。调用方式与判读见 [`docs/guides/DEPLOYMENT.md`](../guides/DEPLOYMENT.md) 的「容器显示 unhealthy 时怎么定位」一节。
+- `HEALTHCHECK` 共**四项**：`db`、`data_dir`、`processors`（三个内置处理器已加载）、`config`。
+  源/目标目录是否同挂载**不再**由健康检查判（旧实例曾有两项「允许的根目录」探针，v2 已删除，改为建库时校验）。
+  调用方式与判读见 [`docs/guides/DEPLOYMENT.md`](../guides/DEPLOYMENT.md) 的「容器显示 unhealthy 时怎么定位」一节。
 
 ---
 

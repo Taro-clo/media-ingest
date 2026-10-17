@@ -3,9 +3,9 @@
 三个接口的用途完全不同，别混：
 
 - ``/health``：**无需认证**，给容器 ``HEALTHCHECK`` 用，所以文案与结构必须稳定、
-  绝不能抛异常（健康探测只认 HTTP 状态码与 ``status`` 字段）。**固定报 6 项**：
-  ``db`` / ``data_dir`` / ``downloads_readable`` / ``library_writable`` /
-  ``processors``（三个内置处理器确实在注册表里）/ ``config``（配置目录可写）。
+  绝不能抛异常（健康探测只认 HTTP 状态码与 ``status`` 字段）。**固定报 4 项**：
+  ``db`` / ``data_dir`` / ``processors``（三个内置处理器确实在注册表里）/
+  ``config``（配置目录可写）。
 - ``/info``：给人看的诊断信息——路径映射、挂载、``st_dev``、处理器与配置状态。
 
 ``/health`` 里额外报出**文件系统编码降级**：硬链接日志是 ``open(LOG_FILE, 'r')``，
@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends
 
 from .. import paths, security
 from ..config import settings
-from ..db import get_conn, get_setting, list_setting
+from ..db import get_conn, get_setting
 from ..processors.defaults import BUILTIN_IDS
 from ..serializers import format_time
 
@@ -43,27 +43,30 @@ CONTAINER_NAME = "media-ingest"
 #: 来自 §2 冻结布局。
 #:
 #: **媒体根不写死**：容器里没有 ``/downloads`` 与 ``/library``，写死会让 ``/api/system/info``
-#: 的 ``mounts`` 报两个 ``exists: false`` 的幽灵挂载点。真实挂载点由「两个白名单设置项的
-#: 最近已存在祖先」决定，故按请求推导，见 :func:`mount_points`。
+#: 的 ``mounts`` 报两个 ``exists: false`` 的幽灵挂载点。真实挂载点由「各媒体库
+#: source_dir / target_dir 的最近已存在祖先」决定，故按请求推导，见 :func:`mount_points`。
 MOUNT_POINTS = ("/data", "/data/config")
 
 
 def mount_points() -> tuple[str, ...]:
-    """当前部署下要展示的容器挂载点：固定项 + 两个白名单根的最近已存在祖先。
+    """当前部署下要展示的容器挂载点：固定项 + 各媒体库源/目标目录的最近已存在祖先。
 
     媒体根取「最近已存在祖先」而不是字符串本身：``/vol1/1000/Library`` 可能尚未创建
     （首次运行会创建），而挂载表里只有真实挂载点。去重且保序（固定项在前）。
     """
     points = list(MOUNT_POINTS)
-    for root in (
-        *list_setting("allowed_source_roots", [settings.default_source_root]),
-        *list_setting("allowed_target_roots", [settings.default_target_root]),
-    ):
-        if not root:
-            continue
-        anchor = paths.existing_ancestor(root) or root
-        if anchor not in points:
-            points.append(anchor)
+    try:
+        rows = get_conn().execute("SELECT source_dir, target_dir FROM libraries").fetchall()
+    except Exception:  # 诊断接口不抛异常
+        rows = []
+    for row in rows:
+        for path in (row["source_dir"], row["target_dir"]):
+            text = str(path or "").strip()
+            if not text:
+                continue
+            anchor = paths.existing_ancestor(text) or text
+            if anchor not in points:
+                points.append(anchor)
     return tuple(points)
 
 
@@ -92,18 +95,6 @@ def _writable(path: str) -> tuple[bool, str]:
     except OSError:  # pragma: no cover - 建得出来就删得掉
         pass
     return True, note + "可写。"
-
-
-def _readable(path: str) -> tuple[bool, str]:
-    """目录存在且能列出一级条目。"""
-    if not os.path.isdir(path):
-        return False, f"{path} 不存在或不是目录。"
-    try:
-        with os.scandir(path):
-            pass
-    except OSError as exc:
-        return False, f"{path} 不可读：{exc.strerror or exc}。"
-    return True, f"{path} 可读。"
 
 
 def _filesystem_encoding_warning() -> str | None:
@@ -175,26 +166,6 @@ def health_checks() -> tuple[dict, dict, list[str]]:
     checks["data_dir"] = ok
     details["data_dir"] = message
 
-    # downloads_readable：取 allowed_source_roots 的第一个（缺省值来自 settings.default_source_root）
-    source_roots = list_setting("allowed_source_roots", [settings.default_source_root])
-    source_probe = source_roots[0] if source_roots else settings.default_source_root
-    ok, message = _readable(source_probe)
-    checks["downloads_readable"] = ok
-    details["downloads_readable"] = message
-    if ok:
-        # 源子树只读**不是结构性保证**（单挂载形态下 /downloads:ro 已退场），
-        # 现在由「代码层不写源目录 + 运行前后逐文件核对」保证；挂载恰好是只读时只是加固。
-        mount = _mount_for(source_probe)
-        if mount and mount.get("read_only"):
-            details["downloads_readable"] += " 该挂载点是只读（额外的加固，v2 不再依赖它保证源目录不被写）。"
-
-    # library_writable
-    target_roots = list_setting("allowed_target_roots", [settings.default_target_root])
-    target_probe = target_roots[0] if target_roots else settings.default_target_root
-    ok, message = _writable(target_probe)
-    checks["library_writable"] = ok
-    details["library_writable"] = message
-
     encoding_warning = _filesystem_encoding_warning()
     if encoding_warning:
         warnings.append(encoding_warning)
@@ -224,11 +195,6 @@ def _mounts_table() -> dict[str, dict]:
     except OSError:
         return {}
     return table
-
-
-def _mount_for(path: str) -> dict | None:
-    """取 ``path`` 自身的挂载信息；只认精确挂载点（不做最长前缀回溯，避免误导）。"""
-    return _mounts_table().get(path.rstrip("/") or "/")
 
 
 def _st_dev(path: str) -> int | None:
@@ -270,18 +236,34 @@ def mounts_view() -> list[dict]:
 def _same_filesystem_view() -> dict:
     """源/目标之间能否创建硬链接（级联判据，附实际参与比较的路径）。
 
-    键名不变（`docs/contracts/API.md` 与前端已在用），但 ``downloads_vs_library`` 现在是**三态**：
+    键名不变（`docs/contracts/API.md` 与前端已在用），但 ``downloads_vs_library`` 是**三态**：
     ``true`` = 已实证（挂载 ID 或 st_dev 预筛通过时也返回 true，message 会注明「未实证」）、
     ``false`` = 明确不可用（跨挂载一定 EXDEV）、``null`` = 无法判定。
+
+    取**第一个媒体库**（按 id 升序）的源/目标目录来判：v2 不再有「允许的源/目标根目录」
+    白名单，部署级没有可比的固定路径；还没有任何媒体库时返回 ``null`` 并在 message 里说明。
 
     **这里刻意不做写入型实证探测**（``probe=False``）：``/api/system/info`` 是只读展示接口、
     会被 UI 反复轮询，不适合每次都往目标目录写一个临时链接再删掉；预筛（挂载 ID → st_dev）
     足够给出展示结论，真正的实证由 ``POST /api/libraries/.../validate?probe=true`` 与运行前预检做。
     """
-    source_roots = list_setting("allowed_source_roots", [settings.default_source_root])
-    target_roots = list_setting("allowed_target_roots", [settings.default_target_root])
-    source_path = source_roots[0] if source_roots else settings.default_source_root
-    target_path = target_roots[0] if target_roots else settings.default_target_root
+    try:
+        row = get_conn().execute(
+            "SELECT source_dir, target_dir FROM libraries ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+    except Exception:  # 诊断接口不抛异常
+        row = None
+    source_path = str(row["source_dir"] or "").strip() if row else ""
+    target_path = str(row["target_dir"] or "").strip() if row else ""
+    if not source_path or not target_path:
+        return {
+            "source_path": source_path,
+            "target_path": target_path,
+            "source_dev": None,
+            "target_dev": None,
+            "downloads_vs_library": None,
+            "message": "尚无媒体库：源/目标目录的挂载与硬链接可行性要等建好第一个媒体库后才能判断。",
+        }
     source_dev = _st_dev(source_path)
     target_dev = _st_dev(target_path)
     ok, message = paths.check_hardlink_support(source_path, target_path, probe=False)
@@ -453,12 +435,27 @@ def _config_view() -> dict:
 
 
 def _disk_view() -> dict:
-    """数据卷/媒体库所在文件系统的剩余空间（``shutil.disk_usage``）。"""
+    """数据卷/媒体库所在文件系统的剩余空间（``shutil.disk_usage``）。
+
+    ``library`` 取第一个媒体库（按 id 升序）的目标目录：v2 已无「允许的目标根目录」，
+    还没有媒体库时该项为 ``None``。
+    """
+    library_path = ""
+    try:
+        row = get_conn().execute(
+            "SELECT target_dir FROM libraries ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        library_path = str(row["target_dir"] or "").strip() if row else ""
+    except Exception:  # 诊断接口不抛异常
+        library_path = ""
     result: dict = {}
     for key, path in (
         ("data", settings.data_dir),
-        ("library", (list_setting("allowed_target_roots", [settings.default_target_root]) or [settings.default_target_root])[0]),
+        ("library", library_path),
     ):
+        if not path:
+            result[key] = None
+            continue
         probe = path if os.path.exists(path) else paths.existing_ancestor(path)
         if not probe:
             result[key] = None

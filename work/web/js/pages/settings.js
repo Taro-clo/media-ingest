@@ -1,4 +1,4 @@
-// pages/settings.js —— 设置：配置同步 / 集成 / 扫描 / 日志与历史 / 允许根目录 / 回调 / 重命名日志 / 路径映射 / 系统信息 / 密码
+// pages/settings.js —— 设置：配置同步 / 集成 / 扫描 / 日志与历史 / 回调 / 重命名日志 / 路径映射 / 系统信息 / 密码
 // 布局（区块顺序）：
 //   1) 页头：标题 + 副标题 + 未保存提示 + 刷新 + 保存设置
 //   2) 配置文件同步（config_sync.js 的 mountConfigStatus：GET /api/config + reload/export）
@@ -6,13 +6,12 @@
 //   4) 目录扫描（scan_enabled / scan_interval_seconds）
 //   5) 日志与历史（log_level / max_history / max_task_log_lines / orphan_cleanup_enabled）
 //   5b) 重命名后缀白名单（rename_extensions，多行文本 ⇄ 数组；对所有媒体库生效）
-//   6) 允许的根目录（allowed_source_roots / allowed_target_roots 多行文本 ⇄ 数组）
-//   7) qBittorrent 回调（hook_token 明文 + 复制 Token + 复制回调命令 + 重新生成 Token + curl 命令块）
-//   9) 重命名日志（info.rename_logs 只读表格；§5.2）
-//  10) 路径映射（只读，info.path_map.container_to_host）
-//  11) 运行自检（/api/system/health，无需认证）
-//  12) 系统信息（version / timezone / data_dir / config_dir / log_dir / processors / libraries / config / 端口 / 队列 / 同一文件系统 / 挂载点）
-//  13) 修改密码
+//   6) qBittorrent 回调（hook_token 明文 + 复制 Token + 复制回调命令 + 重新生成 Token + curl 命令块）
+//   7) 重命名日志（info.rename_logs 只读表格；§5.2）
+//   8) 路径映射（只读，info.path_map.container_to_host）
+//   9) 运行自检（/api/system/health，无需认证）
+//  10) 系统信息（version / timezone / data_dir / config_dir / log_dir / processors / libraries / config / 端口 / 队列 / 同一文件系统 / 挂载点）
+//  11) 修改密码
 // 数据源单一形态：GET /api/settings 为已解析类型的裸对象；PUT 只提交变更字段。
 // 注意：本页**不含**「脚本日志连续性」面板（`seed_logs_on_first_run` 开关随之取消）。
 
@@ -42,9 +41,7 @@ const HEALTH_LABELS = {
   db: 'set.health.db',
   processors: 'set.health.processors',
   config: 'set.health.config',
-  data_dir: 'set.health.data_dir',
-  downloads_readable: 'set.health.downloads',
-  library_writable: 'set.health.library'
+  data_dir: 'set.health.data_dir'
 };
 
 // ---------------------------------------------------------------- 小工具
@@ -250,29 +247,6 @@ function extrasCard(s) {
   </section>`;
 }
 
-function rootsCard(s) {
-  return html`<section class="card">
-    <div class="card-head"><h2 class="card-title">${t('set.section.roots')}</h2></div>
-    <div class="card-body">
-      <div class="form">
-        <div class="form-grid">
-          ${field({
-            id: 'set-roots-source',
-            label: t('set.roots.source'),
-            control: textareaInput({ id: 'set-roots-source', rows: 4, value: arrayToText(s.allowed_source_roots), placeholder: '/vol1/1000/Download' })
-          })}
-          ${field({
-            id: 'set-roots-target',
-            label: t('set.roots.target'),
-            control: textareaInput({ id: 'set-roots-target', rows: 4, value: arrayToText(s.allowed_target_roots), placeholder: '/vol1/1000/Library' })
-          })}
-        </div>
-        <p class="field-hint">${t('set.roots.hint')}</p>
-      </div>
-    </div>
-  </section>`;
-}
-
 function hookCard(s) {
   const token = s.hook_token || '';
   const origin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'http://<host>:18081';
@@ -443,7 +417,7 @@ function systemCard(info) {
   //
   // 颜色口径（**全产品唯一**，复核后定为四级）：
   //   绿 = 已实证通过；黄 = 无法判定、或「确定但不能阻断」；红 = **只**留给阻断性错误
-  //   （例如本页健康检查的 downloads_readable / library_writable 为 false）。
+  //   （例如本页健康检查的 db / data_dir / config 为 false）。
   // 本卡取的是 `GET /api/system/info`，后端在 `_same_filesystem_view()` 里刻意传 `probe=False`
   // （不做实证探测，避免每次打开设置页都去写目标目录）⇒ 这里拿到的 `true` **必然是**「未实证」的
   // 预筛结论（挂载 ID 或 st_dev，相同只是必要不充分条件），所以按四级口径只能是**黄「通过（未实证）」**，
@@ -597,7 +571,6 @@ function pageHtml(state) {
     ${logCard(state.settings)}
     ${renameExtCard(state.settings)}
     ${extrasCard(state.settings)}
-    ${rootsCard(state.settings)}
     ${hookCard(state.settings)}
     ${renameLogsCard(state.info)}
     ${pathMapCard(state.info)}
@@ -702,8 +675,6 @@ export async function render(container) {
       max_history: Number(q('#set-max-history').value),
       max_task_log_lines: Number(q('#set-max-task-lines').value),
       config_sync_interval_seconds: Number(q('#set-config-sync-interval').value),
-      allowed_source_roots: linesToArray(q('#set-roots-source').value),
-      allowed_target_roots: linesToArray(q('#set-roots-target').value),
       // 后缀统一小写（后端也做，这里只是让"改了没反应"不至于出在大小写上）。
       rename_extensions: suffixItemsToArray(q('#set-rename-ext').value),
       // L3：正则一行一条 —— 只按行切、不按空格切（正则里可以含空格）。
@@ -749,12 +720,6 @@ export async function render(container) {
     if (String(q('#set-max-history').value).trim() === '') hint('set-max-history', 'set.err.max_history');
     if (String(q('#set-max-task-lines').value).trim() === '') hint('set-max-task-lines', 'set.err.max_lines');
     if (String(q('#set-config-sync-interval').value).trim() === '') hint('set-config-sync-interval', 'set.err.cfg_interval');
-    if (!payload.allowed_source_roots.length) hint('set-roots-source', 'set.err.roots_required');
-    if (!payload.allowed_target_roots.length) hint('set-roots-target', 'set.err.roots_required');
-    if (payload.allowed_source_roots.concat(payload.allowed_target_roots).some(function (p) { return p.charAt(0) !== '/'; })) {
-      hint('set-roots-source', 'set.err.roots_absolute');
-      hint('set-roots-target', 'set.err.roots_absolute');
-    }
     if (payload.rename_extensions.some(function (s) { return !/^\.[a-z0-9][a-z0-9._+-]*$/i.test(s); })) {
       hint('set-rename-ext', 'set.err.rename_ext_format');
     }
@@ -783,8 +748,6 @@ export async function render(container) {
     max_history: 'set-max-history',
     max_task_log_lines: 'set-max-task-lines',
     config_sync_interval_seconds: 'set-config-sync-interval',
-    allowed_source_roots: 'set-roots-source',
-    allowed_target_roots: 'set-roots-target',
     rename_extensions: 'set-rename-ext',
     extras_patterns: 'set-extras-patterns',
     qbittorrent_url: 'set-qb-url',

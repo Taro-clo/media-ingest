@@ -294,11 +294,6 @@ CONFIG_DIR=/data/config           # 在 /data 卷内，无需额外挂载
 PUID=auto                         # 按 MEDIA_ROOT 属主自动识别；想固定就写数字（§1.3）
 PGID=auto
 # MLM_DATA_DIR=<数据卷>           # 可选：数据卷放别处（默认 compose 同目录的 ./data，§2.3）
-
-# 两个白名单的**首次播种初值**：不写则自动取 <MEDIA_ROOT>/Download、<MEDIA_ROOT>/Library
-# （只对空库生效；已装实例请到设置页改）
-# DEFAULT_SOURCE_ROOT=/vol1/1000/Download
-# DEFAULT_TARGET_ROOT=/vol1/1000/Library
 HOST_PATH_MAP={}                  # 路径映射，**只用于界面展示**；恒等部署留空对象即可（见下方 💡）
 ```
 
@@ -313,7 +308,7 @@ HOST_PATH_MAP={}                  # 路径映射，**只用于界面展示**；�
 sh examples/validate-deployment-assets.sh [仓库根]
 ```
 
-**共 13 节**（编号 1–13；第 7 项「端口贯穿」并在第 6 节内）：三个 shell 脚本的 `dash`/`bash` 语法与 Windows CR 残留；`healthcheck.sh` 判据（桩服务行为测试：无服务、或**六项必需 checks 缺任一项**都必须判 unhealthy）；`docker compose config` 插值 + 渲染后事实（镜像/容器名、`restart`、端口、**恰好两条 volumes**、environment 键值）；改 `PORT` 时宿主与容器端口同步；Dockerfile 断言；`.dockerignore`；回调命令与 examples 的 API 口径；以及**第 13 节的真实硬链接探针**（需显式给 `SRC_ROOT`/`TGT_ROOT`，缺任一个即 SKIP）。脚本只在 `mktemp` 临时目录里写东西。
+**共 13 节**（编号 1–13；第 7 项「端口贯穿」并在第 6 节内）：三个 shell 脚本的 `dash`/`bash` 语法与 Windows CR 残留；`healthcheck.sh` 判据（桩服务行为测试：无服务、或**四项必需 checks 缺任一项**都必须判 unhealthy）；`docker compose config` 插值 + 渲染后事实（镜像/容器名、`restart`、端口、**恰好两条 volumes**、environment 键值）；改 `PORT` 时宿主与容器端口同步；Dockerfile 断言；`.dockerignore`；回调命令与 examples 的 API 口径；以及**第 13 节的真实硬链接探针**（需显式给 `SRC_ROOT`/`TGT_ROOT`，缺任一个即 SKIP）。脚本只在 `mktemp` 临时目录里写东西。
 
 > 判据是 **[FAIL] 计数为 0**，不是固定 PASS 数。⚠️ **文档不代替验收** —— "构建成功 + 容器 `healthy`"属部署验收（§4.3 / §4.4）。
 
@@ -329,13 +324,13 @@ docker inspect media-ingest --format '{{.State.Status}} health={{if .State.Healt
 
 `health=healthy` 是期望值（刚启动 30 秒内可能是 `starting`）。日志里关注：有没有 `Permission denied` / `No such file or directory`；有没有打印**配置已初始化/已同步**；uvicorn 是否在 `0.0.0.0:18081` 监听。
 
-> ℹ️ **`healthy` 是真的"业务健康"**：`docker/healthcheck.sh` 解析 `/api/system/health`，**`status == "ok"` 且 `checks` 六个键全为 `true`** 才判 healthy（`db`、`data_dir`、`downloads_readable`、`library_writable`、`processors`、`config`）。该接口**永远返回 HTTP 200**，所以**不要**只看状态码。
+> ℹ️ **`healthy` 是真的"业务健康"**：`docker/healthcheck.sh` 解析 `/api/system/health`，**`status == "ok"` 且 `checks` 四个键全为 `true`** 才判 healthy（`db`、`data_dir`、`processors`、`config`）。该接口**永远返回 HTTP 200**，所以**不要**只看状态码。
 
 ### 4.4 验证服务可访问（不用登录）
 
 **【NAS 宿主】** `curl -s http://127.0.0.1:18081/api/system/health` —— 期望 `"status":"ok"`，哪项 `false` 就查 §4.4.1。
 
-**【容器内】** 直接跑健康检查脚本（`status=="ok"` 且六项全 `true` 才退出 0；退出码 `0`/`1`/`2` 分别 = 健康 / `degraded` 或响应非法 / 连不上或 HTTP 非 200）：
+**【容器内】** 直接跑健康检查脚本（`status=="ok"` 且四项全 `true` 才退出 0；退出码 `0`/`1`/`2` 分别 = 健康 / `degraded` 或响应非法 / 连不上或 HTTP 非 200）：
 
 ```bash
 docker exec media-ingest /usr/local/bin/mlm-healthcheck
@@ -359,9 +354,11 @@ docker exec media-ingest /usr/local/bin/mlm-healthcheck
 | `db` | 打不开 `/data` 下的 SQLite | 数据卷没挂上 / 属主不对 → §10.2、§7.4 |
 | `processors` | 三个内置处理器没有全部加载 | 看 `GET /api/processors` 与 `GET /api/config` 的 `errors`；必要时删掉 `/data/config/processors/` 下对应文件并重启 |
 | `config` / `data_dir` | `/data/config` 或 `/data` 不可写 | `chown -R <PUID>:<PGID> <数据卷>`（§10.2） |
-| `downloads_readable` | `allowed_source_roots` 第一个目录读不到 | 核对 `PUID`/`PGID` 与宿主属主（§10.2） |
-| `library_writable` | `allowed_target_roots` 第一个目录不可写 | 同上；**别对媒体库整棵树 `chown -R`**（会连带改到硬链接共享的源文件） |
 | `warnings` 非空 | 通常是文件系统编码不是 UTF-8 | 按 `details` 设 `LANG=C.UTF-8` / `PYTHONUTF8=1`（§4.2） |
+
+> 📌 v2 删除了 `downloads_readable` / `library_writable` 两项（它们只探「允许的根目录」白名单，白名单机制已整体删除）。
+> 源/目标目录是否**同挂载**改在**建库/改库时**校验：跨挂载直接 `422`，运行期失败体现在任务的 `errors[]` / `link_failed` 里；
+> 只读参考见 `/api/system/info` 的 `same_filesystem`（§6.5）。
 
 > **两条判据的区别**：`/api/system/health` **永远 200**，健康与否看响应体的 `status` 与 `checks`；`healthcheck.sh` 解析响应体，`degraded` 会让容器真的显示 `(unhealthy)` 并在 stderr 打印 `[失败]` / `[缺失]` 行。
 > **任何时候都以接口的 `status` 与 `checks` 为准。**
@@ -370,7 +367,7 @@ docker exec media-ingest /usr/local/bin/mlm-healthcheck
 
 ```
 media-ingest  media-ingest:latest  "/usr/local/bin/…"  Up 45 seconds (healthy)  0.0.0.0:18081->18081/tcp
-{"status":"ok","checks":{"db":true,"data_dir":true,"downloads_readable":true,"library_writable":true,"processors":true,"config":true},"warnings":[],"version":"1.0.0"}
+{"status":"ok","checks":{"db":true,"data_dir":true,"processors":true,"config":true},"warnings":[],"version":"1.0.0"}
 ```
 
 ### 4.5 浏览器打开并创建管理员
@@ -453,7 +450,6 @@ docker compose -f docker-compose.release.yml ps        # STATUS 出现 (healthy)
 | 媒体共同父目录 | `/vol1/1000` | 改 `x-media-root` 锚点（或设 `MEDIA_ROOT=/你的/路径`） |
 | 数据卷（宿主） | compose 文件同目录的 `./data` | 改 `x-data-dir` 锚点（或设 `MLM_DATA_DIR=/你的/路径/data`） |
 | 运行身份 | `PUID=auto` / `PGID=auto`：按 `MEDIA_ROOT` 属主自动识别（识别失败回退 `1000:1001` 并在日志 WARN） | 想固定就写数字 `PUID=1000 PGID=1000` |
-| 源 / 目标根 | 由 `MEDIA_ROOT` 自动派生 `<MEDIA_ROOT>/Download`、`<MEDIA_ROOT>/Library`（仅首次建库时播种） | 一般不用设；特殊值用 `DEFAULT_SOURCE_ROOT=… DEFAULT_TARGET_ROOT=…` |
 | 端口 | `18081` | 改 `x-port` 锚点（或设 `PORT=18099`，宿主与容器同步移动） |
 | `HOST_PATH_MAP` | 空 = 恒等（容器路径就是宿主路径） | 只在容器内路径 ≠ 宿主路径时才需要 |
 
@@ -592,22 +588,25 @@ MLM_VERSION=1.0.1 docker compose -f docker-compose.release.yml up -d
 
 源码构建的部署没有 `pull` 这一步，走 §6.2 的 `docker compose up -d --build`。
 
-### 6.5 升级后必做：确认两个路径白名单
+### 6.5 升级后必做：确认媒体库路径仍可用
 
-**为什么**：单挂载形态之后，容器里只有 `<MEDIA_ROOT>` 与 `/data` 两条挂载；更早版本的默认值 `/downloads`、`/library` 在容器里**根本不存在**。若两个 roots 停在那两个值上，`/api/system/health` 的 `downloads_readable` / `library_writable` 会变 **`false`** ⇒ **开箱 unhealthy**（其余项都正常，很容易误判成权限问题）。
+**为什么**：v2 起**删除了**「允许的源/目标根目录」两个设置项（`allowed_source_roots` / `allowed_target_roots`）。
+启动迁移会把老库里的这两个键**直接删掉**，所以不会再出现「旧根目录卡在 `/downloads` / `/library` 导致 unhealthy」——
+健康检查里对应的两项也一起删了（现在只有 `db` / `data_dir` / `processors` / `config`）。
 
-**自动迁移规则**（只做一次）：
+**升级后要确认**的是每个媒体库自己的 `source_dir` / `target_dir`（它们没被改）：
 
-- 设置值**恰好逐字等于**更早版本的默认单值（源 `["/downloads"]`、目标 `["/library"]`）⇒ **自动改写**为 `[DEFAULT_SOURCE_ROOT]` / `[DEFAULT_TARGET_ROOT]`（即宿主真实路径）；
-- 你自己改过（任何别的值，包括多元素列表）⇒ **一律不动** —— 迁移刻意不猜你的意图。
+- 若库的路径还是更早版本的容器路径（`/downloads/...`、`/library/...`），在单挂载形态下这些路径**不存在** ——
+  编辑该库改成宿主真实路径（容器路径 = 宿主路径），保存时会自动校验「同一挂载」；
+- 跨挂载的库在**保存时**就会被拒绝（`422`，文案带「不在同一个挂载」），不会再静默失败。
 
 **30 秒确认【NAS 宿主】**
 
-`curl -s http://127.0.0.1:18081/api/system/health`（`downloads_readable` / `library_writable` 应为 `true`）+ `curl -s http://127.0.0.1:18081/api/settings`（看两个 roots 的实际值）。
+`curl -s http://127.0.0.1:18081/api/system/health`（四项应全 `true`）+ `curl -s http://127.0.0.1:18081/api/system/info`
+（看 `mounts[]` 里是否出现每个库的源/目标目录，以及 `same_filesystem` 的概览结论）。
 
-- 两个 roots 是**宿主真实路径**（如 `/vol1/1000/Download`、`/vol1/1000/Library`）⇒ 迁移成功；
-- 仍是 `/downloads` / `/library`（你曾自定义过，迁移按约定跳过）⇒ 到 **WebUI 设置页**改成宿主真实路径；
-- ⚠️ `DEFAULT_SOURCE_ROOT` / `DEFAULT_TARGET_ROOT` **只影响首次播种**，对已存在的 DB 不生效 —— 改它们解决不了这个死角。
+- `downloads_vs_library: true`（未实证）或 `probe` 实证通过 ⇒ 同挂载没问题；
+- `false` ⇒ 该库源/目标跨挂载，按 §2/§3 把下载根与媒体库根放进同一条 bind。
 
 **升级后的行为变化**（看一眼再决定要不要调）：**重命名改由规则引擎执行**，默认（`default` 预设）比 `legacy` 多拒绝目录规则与 9 条集数规则 —— 想要旧口径就到处理器页「恢复默认」选 `legacy`；**硬链接改由原生实现执行**（`app/processors/hardlink.py`），可观察输出由 `tests/test_hardlink_native.py` 的冻结黄金值守护。
 

@@ -303,4 +303,4 @@ ASCII 大小写不敏感，`%`/`_`/`\` 按字面处理）；`limit` 夹在 `1..2
 | 5 | qBittorrent 版本与「运行外部程序」的占位符支持 | qBittorrent → 选项 → 下载 → 运行外部程序；参考 §5 与 [`TROUBLESHOOTING.md`](../guides/TROUBLESHOOTING.md) |
 | 6 | 是否需要经反向代理/HTTPS 访问（影响 SSE 与 Cookie） | 若经反代：确认关闭响应缓冲、并接受 Cookie 未设 `Secure`（见 §7） |
 | 7 | 数据卷所在文件系统与剩余空间（日志/DB/配置/secret.key 都写这里） | **【NAS 宿主】** `df -h <部署目录>/data` |
-| 8 | 健康检查的判据 | `GET /api/system/health` **恒返回 200**，必须看 body：`status == "ok"` 且 `checks` **六项**（`db`/`data_dir`/`downloads_readable`/`library_writable`/`processors`/`config`）全为 `true`；只看 HTTP 码会漏判 |
+| 8 | 健康检查的判据 | `GET /api/system/health` **恒返回 200**，必须看 body：`status == "ok"` 且 `checks` **四项**（`db`/`data_dir`/`processors`/`config`）全为 `true`；只看 HTTP 码会漏判 |

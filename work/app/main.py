@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__, configstore, paths
 from .config import settings
-from .db import get_setting, init_db, list_setting
+from .db import get_conn, get_setting, init_db
 from .queue import queue
 from .routers import (
     auth,
@@ -114,8 +114,13 @@ async def lifespan(app: FastAPI):
 
     # 清扫上次进程被强杀时可能残留的硬链接探针临时文件（``.mlm_probe_*.link``）。
     # 探针正常路径自己会删；这里的兜底避免它们被媒体扫描器/Emby 当成垃圾文件。
+    # 目标目录逐库取（v2 已无「允许的目标根」白名单）。
     try:
-        for root in list_setting("allowed_target_roots", [settings.default_target_root]):
+        rows = get_conn().execute("SELECT DISTINCT target_dir FROM libraries").fetchall()
+        for row in rows:
+            root = str(row["target_dir"] or "").strip()
+            if not root:
+                continue
             removed = paths.cleanup_probe_leftovers(root)
             if removed:
                 logger.warning("已清理 %s 下 %s 个残留的探针临时文件（%s*）", root, removed, paths.PROBE_PREFIX)

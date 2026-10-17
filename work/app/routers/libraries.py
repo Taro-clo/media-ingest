@@ -30,7 +30,7 @@ from fastapi import APIRouter, Body, Depends, Query
 from .. import configstore, paths, security
 from ..api_models import LibraryInput, RunRequest, WorkDeleteRequest, WorkSelection
 from ..config import settings
-from ..db import get_conn, list_setting, now_iso
+from ..db import get_conn, now_iso
 from ..link_records import (
     drop as drop_link_records,
     drop_by_library as drop_link_records_by_library,
@@ -61,26 +61,6 @@ TYPE_LABELS = {"Bangumi": "番剧库", "Movie": "电影库", "Custom": "自定�
 
 #: 内置处理器 -> 旧库的 ``type`` 取值（迁移后的老库要保持原来的显示标签）。
 BUILTIN_TYPE_LABELS = {"bangumi": "Bangumi", "movie": "Movie", "hardlink_only": "Custom"}
-
-
-def _allowed_roots() -> tuple[list[str], list[str]]:
-    """读白名单根（settings 里的 JSON 数组），并做一次归一化。
-
-    回退值取自 ``settings.default_source_root`` / ``default_target_root``（唯一真源：
-    单挂载形态下容器路径 = 宿主路径，不要填 ``/downloads``、``/library`` 这类容器内路径）。
-    """
-    source_roots = [
-        paths.normalize(r)
-        for r in list_setting("allowed_source_roots", [settings.default_source_root])
-    ]
-    target_roots = [
-        paths.normalize(r)
-        for r in list_setting("allowed_target_roots", [settings.default_target_root])
-    ]
-    return (
-        source_roots or [settings.default_source_root],
-        target_roots or [settings.default_target_root],
-    )
 
 
 def _library_path(raw: str) -> str:
@@ -207,7 +187,7 @@ def _export_config() -> None:
 
 
 def _validate_paths(source_dir: str, target_dir: str, *, probe: bool) -> dict:
-    """路径四连检：白名单 -> 相同/包含 -> 硬链接可用性级联 ->（可选）os.link 实证。
+    """路径四连检：相同/包含 -> 硬链接可用性级联 ->（可选）os.link 实证。
 
     返回预检结果 dict；**不抛异常**，把失败原因作为 ``ok=false`` 返回，
     这样 WebUI 的"校验"按钮能一次把全部问题列出来，而不是修一个报一个。
@@ -226,18 +206,6 @@ def _validate_paths(source_dir: str, target_dir: str, *, probe: bool) -> dict:
         "errors": [],
         "warnings": [],
     }
-    source_roots, target_roots = _allowed_roots()
-    try:
-        paths.assert_allowed(source_dir, source_roots, "源目录")
-    except ValueError as exc:
-        result["ok"] = False
-        result["errors"].append(str(exc))
-    try:
-        paths.assert_allowed(target_dir, target_roots, "目标目录")
-    except ValueError as exc:
-        result["ok"] = False
-        result["errors"].append(str(exc))
-
     ok_mounts, mount_error = paths.check_cross_mounts(source_dir, target_dir)
     if not ok_mounts:
         result["ok"] = False
@@ -340,12 +308,6 @@ def create_library(
     if exists is not None:
         raise conflict(f"已存在同名媒体库「{name}」，请换一个名称。")
 
-    source_roots, target_roots = _allowed_roots()
-    try:
-        paths.assert_allowed(source_dir, source_roots, "源目录")
-        paths.assert_allowed(target_dir, target_roots, "目标目录")
-    except ValueError as exc:
-        raise bad_request(str(exc))
     ok_mounts, mount_error = paths.check_cross_mounts(source_dir, target_dir)
     if not ok_mounts:
         raise bad_request(mount_error)
@@ -431,12 +393,6 @@ def update_library(
     if clash is not None:
         raise conflict(f"已存在同名媒体库「{name}」，请换一个名称。")
 
-    source_roots, target_roots = _allowed_roots()
-    try:
-        paths.assert_allowed(source_dir, source_roots, "源目录")
-        paths.assert_allowed(target_dir, target_roots, "目标目录")
-    except ValueError as exc:
-        raise bad_request(str(exc))
     ok_mounts, mount_error = paths.check_cross_mounts(source_dir, target_dir)
     if not ok_mounts:
         raise bad_request(mount_error)

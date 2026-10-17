@@ -32,7 +32,7 @@ curl -s -c cookies.txt -X POST http://127.0.0.1:18081/api/auth/login \
 
 | 看什么 | 正常应该是 | 不对时看 |
 |---|---|---|
-| `mounts[]` | 一条 `MEDIA_ROOT`（**容器路径 = 宿主路径**、可写）+ `/data` + `/data/config`；**没有**单独的 `/downloads` / `/library`。条目数**随设置变化**：固定项之外还有 `allowed_source_roots` / `allowed_target_roots` 各自的**最近已存在祖先**，别按"恰好几条"核对 | 场景 1、21、22 |
+| `mounts[]` | 一条 `MEDIA_ROOT`（**容器路径 = 宿主路径**、可写）+ `/data` + `/data/config`；**没有**单独的 `/downloads` / `/library`。条目数**随媒体库变化**：固定项之外还有每个库的 `source_dir` / `target_dir` 的**最近已存在祖先**，别按"恰好几条"核对 | 场景 1、21、22 |
 | `same_filesystem`（三态） | `true` = **已实证**能在容器内建硬链接；`false` = 跨挂载，必然失败；`null` = **无法实证，不等于通过** | 场景 1、21 |
 | `processors` / `config` | `processors.total` 为 3、`builtin_ids` 为 `["hardlink_only","bangumi","movie"]`；`config.files[].in_sync` 全为 `true` | 场景 17、18 |
 
@@ -44,11 +44,13 @@ curl -s -c cookies.txt -X POST http://127.0.0.1:18081/api/auth/login \
 curl -s http://127.0.0.1:18081/api/system/health | python3 -m json.tool
 ```
 
-`checks` 固定**六项**：`db` / `data_dir` / `config` / `processors` / `downloads_readable` / `library_writable`。哪一项是 `false`，`details` 里就有对应的中文原因，直接对号入座（见[场景 2](#2-启动即-degraded健康检查六项里有-false)）。
+`checks` 固定**四项**：`db` / `data_dir` / `config` / `processors`。哪一项是 `false`，`details` 里就有对应的中文原因，直接对号入座（见[场景 2](#2-启动即-degraded健康检查四项里有-false)）。
 
-> ⚠️ **`downloads_readable` / `library_writable` 只探"白名单的第一个根"**（`allowed_source_roots[0]` / `allowed_target_roots[0]`，缺省跟随 `MEDIA_ROOT`），**不是**逐库检查某个媒体库的源/目标路径。所以某项为 `false` 说明那**一个**根读/写不了，别据此断定"某个库坏了"；库级路径要按[场景 22](#22-升级到单挂载形态后容器-unhealthy旧的允许根目录还在) 单独看。
+> ⚠️ 源/目标目录是否**同一挂载**不再由健康检查判（旧版的 `downloads_readable` / `library_writable` 随「允许的根目录」白名单一起删除）：
+> 建库/改库时校验，跨挂载直接 `422`；运行期问题看任务 `errors[]` / `link_failed` 与 `/api/system/info` 的 `same_filesystem`。
+> 升级后媒体库路径仍是旧容器路径的排查见[场景 22](#22-升级到单挂载形态后容器-unhealthy旧的允许根目录还在)。
 
-> ⚠️ **`status` 为 `degraded` 有两种来源**：① 六项里有 `false`；② 六项全 `true`，但 `warnings` 非空 —— 目前唯一的 warning 来源是**容器内文件系统编码不是 UTF-8**（消息里会点名 `LANG` / `PYTHONUTF8` / `PYTHONIOENCODING`），此时中文文件夹名会在读取日志时抛 `UnicodeDecodeError`。健康判据只有一条：`status == "ok"`。
+> ⚠️ **`status` 为 `degraded` 有两种来源**：① 四项里有 `false`；② 四项全 `true`，但 `warnings` 非空 —— 目前唯一的 warning 来源是**容器内文件系统编码不是 UTF-8**（消息里会点名 `LANG` / `PYTHONUTF8` / `PYTHONIOENCODING`），此时中文文件夹名会在读取日志时抛 `UnicodeDecodeError`。健康判据只有一条：`status == "ok"`。
 
 **第三步：看任务的原始输出。**
 
@@ -71,7 +73,7 @@ docker compose logs --tail=100 media-ingest
 | 现象关键词 | 场景 |
 |---|---|
 | `跨文件系统错误` / `EXDEV` / `Invalid cross-device link` | [1](#1-任务全部-link_failed错误里有跨文件系统错误-errno-18-invalid-cross-device-link) |
-| 启动即 `degraded` / 健康检查里有 `false` | [2](#2-启动即-degraded健康检查六项里有-false) |
+| 启动即 `degraded` / 健康检查里有 `false` | [2](#2-启动即-degraded健康检查四项里有-false) |
 | 想确认应用没动源文件 / `source_integrity` | [3](#3-源目录是可写的怎么确认应用没有动你的源文件) |
 | 第一次就全量重扫 / 账本从空开始 | [4](#4-第一次使用就全量重扫账本从空开始) |
 | 满屏 `创建硬链接失败: … File exists` / 反复处理同一批文件夹 | [5](#5-每次运行都满屏创建硬链接失败--file-exists并且重复处理同一批文件夹) |
@@ -91,7 +93,7 @@ docker compose logs --tail=100 media-ingest
 | 保存媒体库报 422 / 日志文件名不合法 | [19](#19-日志文件名不合法422) |
 | 特典/扫图目录整棵跳过 / 想换回最朴素的旧口径 | [20](#20-特典目录被跳过时如何用-legacy-换回最朴素的旧口径) |
 | `same_filesystem: true` 但真跑全失败 / 探针 `null` | [21](#21-same_filesystem-说可以真跑却全部失败预检假绿) |
-| 换单挂载后 `unhealthy` / 设置页根目录还是 `/downloads`、`/library` | [22](#22-升级到单挂载形态后容器-unhealthy旧的允许根目录还在) |
+| 换单挂载后库路径还是 `/downloads`、`/library`（旧版白名单已删除） | [22](#22-升级到单挂载形态后容器-unhealthy旧的允许根目录还在) |
 | 保存报 422、字段以 `rule_override.` 开头 / 「未知变量」 | [23](#23-库级覆盖--命名模板保存报-422) |
 | 改了后缀白名单没生效 | [23.1](#231-改了后缀白名单却没生效) |
 | 库日志混进访问日志 / 会不会无限增长 | [24](#24-库日志里混进了应用日志会不会无限增长) |
@@ -159,7 +161,7 @@ docker exec -it media-ingest sh -c \
 
 ---
 
-## 2. 启动即 `degraded`：健康检查六项里有 `false`
+## 2. 启动即 `degraded`：健康检查四项里有 `false`
 
 **【现象】** 容器起来了，但 `/api/system/health` 的 `status` 是 `"degraded"`，页面顶部出现红字，或任务一开跑就失败。
 
@@ -168,11 +170,9 @@ docker exec -it media-ingest sh -c \
 | `false` 的项 | 含义 | 去哪 |
 |---|---|---|
 | `db` / `data_dir` / `config` | 数据卷不可写、数据库打不开或损坏、配置目录读不了 | [场景 7](#7-权限类报错permission-denied--read-only-file-system) |
-| `downloads_readable` | **白名单第一个源根**（`allowed_source_roots[0]`）不可读或不存在 | [场景 1](#1-任务全部-link_failed错误里有跨文件系统错误-errno-18-invalid-cross-device-link)、[场景 22](#22-升级到单挂载形态后容器-unhealthy旧的允许根目录还在) |
-| `library_writable` | **白名单第一个目标根**（`allowed_target_roots[0]`）不可写或不存在 | [场景 7](#7-权限类报错permission-denied--read-only-file-system)、[场景 22](#22-升级到单挂载形态后容器-unhealthy旧的允许根目录还在) |
 | `processors` | 三个内置处理器没齐备或注册表不可用 | [场景 17](#17-配置文件被外部改坏后如何恢复)、[场景 18](#18-处理器被删除了但媒体库还在引用) |
 
-每一项都在 `details` 里带中文原因；两个路径项**只代表那一个根**，不是逐库结论（见[场景 0](#0-五分钟通用诊断任何问题都先做这三步)第二步的 ⚠️）。**六项全绿却仍 `degraded`** ⇒ 看 `warnings`：目前唯一来源是**容器内文件系统编码不是 UTF-8**，按消息里点名的三个环境变量修（`LANG=C.UTF-8`、`PYTHONUTF8=1`、`PYTHONIOENCODING=utf-8`，它们在镜像里已预设）。
+每一项都在 `details` 里带中文原因。**四项全绿却仍 `degraded`** ⇒ 看 `warnings`：目前唯一来源是**容器内文件系统编码不是 UTF-8**，按消息里点名的三个环境变量修（`LANG=C.UTF-8`、`PYTHONUTF8=1`、`PYTHONIOENCODING=utf-8`，它们在镜像里已预设）。
 
 **【诊断命令】**
 
@@ -183,7 +183,7 @@ curl -s http://127.0.0.1:18081/api/system/health | python3 -m json.tool
 curl -s http://127.0.0.1:18081/api/processors | python3 -m json.tool | head -n 40
 ```
 
-> 六项检查里**没有**"外部依赖"这一项：镜像自带运行环境，宿主不需要装 Python 或别的工具。所以 `degraded` 只可能来自上表六项或 `warnings`。
+> 四项检查里**没有**"外部依赖"这一项：镜像自带运行环境，宿主不需要装 Python 或别的工具。所以 `degraded` 只可能来自上表四项或 `warnings`。
 
 **【解决步骤】**
 
@@ -334,7 +334,7 @@ ls -l /vol1/1000/Download/qbittorrent/Bangumi/          # 源文件一定还在
 
 - `创建硬链接失败: <目标目录>/… - [Errno 13] Permission denied`
 - `[Errno 30] Read-only file system`（往只读挂载或镜像内文件写）
-- 健康检查里 `downloads_readable` / `library_writable`（各自的白名单第一个根，见[场景 2](#2-启动即-degraded健康检查六项里有-false)）或 `data_dir` 为 `false`
+- 健康检查里 `data_dir` / `config` 为 `false`（v2 已删掉源/目标根两项检查，见[场景 2](#2-启动即-degraded健康检查四项里有-false)）
 - 容器起不来，日志里有 `无法创建 /data/...`
 
 **【原因】** 容器以非 root 用户（`app`，`PUID`/`PGID`）运行；`/data` 与**目标目录**的宿主属主/权限必须让该用户可写。源目录在单挂载形态下本身可写，但**应用不写它**（[场景 3](#3-源目录是可写的怎么确认应用没有动你的源文件)）。属主、`PUID`/`PGID` 与常见报错对照的完整说明见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §10.5。
@@ -675,8 +675,8 @@ docker compose exec media-ingest head -n 30 /data/config/processors/bangumi.yaml
 **【原因】** 预检只是**探针**，不是全量证明：
 
 - **【浏览器】「校验」= `POST /api/libraries/{id}/validate?probe=true`，只对"这一对目录"采样**：从该库 `source_dir` 有界递归（深度 ≤3、最多 512 个条目、不跟随符号链接）取一个已存在的普通文件，`os.link` 到 `target_dir` 下的临时名 `.mlm_probe_*` 再立刻删掉 —— 源目录一个字节都不写。
-- 所以它能证明的是「这个样本、这两个目录能链」，**不能**证明「每个库的每个源/目标组合都同挂载」；多库、多白名单根时尤其明显。
-- 健康检查的 `same_filesystem` 是另一件事：它只探**白名单第一个根**（`app/routers/system.py` 的 `health_checks`），跟某个具体库无关。
+- 所以它能证明的是「这个样本、这两个目录能链」，**不能**证明「每个库的每个源/目标组合都同挂载」；多库时尤其明显。
+- 健康检查**没有**同挂载项（v2 起只保留 `db`/`data_dir`/`processors`/`config`）；`/api/system/info` 的 `same_filesystem` 是另一件事：它取**第一个媒体库**的 `source_dir` / `target_dir` 做只读概览（`probe=False`），跟其它库无关。
 - 早期版本把「判不了」当成 `true` —— 这正是"假绿"的成因（`work/tests/test_hardlink_precheck.py` 钉的就是这条）。
 
 三态含义：`true` = **已实证**；`false` = 必然失败；`null` = **无法实证，不是通过**。
@@ -699,21 +699,19 @@ docker exec -it media-ingest sh -c 'f=$(find <source_dir> -maxdepth 3 -type f | 
 
 ## 22. 升级到单挂载形态后容器 `unhealthy`（旧的允许根目录还在）
 
-**【现象】** 从「`/downloads:ro` + `/library`」改成单挂载后容器一直 `unhealthy`；系统信息 `mounts[]` 里仍出现 `/downloads`、`/library`；或健康检查 `downloads_readable: false` 而目录明明存在。
+> 📌 **v2 已彻底删除这套机制**：`allowed_source_roots` / `allowed_target_roots` 两个设置项连同健康检查里的
+> `downloads_readable` / `library_writable` 一起从 DB、API、WebUI 中删掉，启动迁移会把老库里的这两个键清掉。
+> 所以**升级到 v2 后不会再出现本条描述的现象**；保留此条只为解释旧版本的事故与迁移影响。
 
-**【原因】** `allowed_source_roots` / `allowed_target_roots` 是**持久化在数据库里的设置项**，不跟随 `.env`、也不跟随 compose 改动 —— 老实例里存的是旧容器路径。健康检查的这两项**只探白名单里的第一个根**（`app/routers/system.py`）：第一个根不存在或不可读，整项就是 `false`，即使其它库都正常；注意它们**不代表**"每个媒体库各自的目录"（库级路径要在该库的「校验」里看）。
+**【现象（仅旧版本）】** 从「`/downloads:ro` + `/library`」改成单挂载后容器一直 `unhealthy`；系统信息 `mounts[]` 里仍出现 `/downloads`、`/library`；或旧版健康检查 `downloads_readable: false` 而目录明明存在。
 
-**【诊断命令】**
+**【原因（仅旧版本）】** 这两个设置项持久化在数据库里，不跟随 compose 改动 —— 老实例里存的是旧容器路径，健康检查只探白名单第一个根。
 
-```bash
-curl -s http://127.0.0.1:18081/api/system/health | python3 -m json.tool   # 看 checks 与 details
-```
+**升级到 v2 后要做的检查**
 
-**【解决步骤】**
-
-1. 设置页把两个白名单改成**容器内 = 宿主的真实路径**（单挂载形态下就是 `/vol1/1000/...`）。改完立刻生效，**不用重启**。
-2. 再 `curl` 一次健康检查，应回到 `status: ok`。
-3. `.env` 里的两个默认值只影响**首次播种**，对已存在的实例无效 —— 这就是升级后必须手动确认白名单的原因，清单见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §6.5。
+1. 升级后 `/api/system/health` 的 `checks` 只有四项（`db`/`data_dir`/`processors`/`config`），不再有那两个根目录检查项。
+2. 若 `mounts[]` 里仍出现 `/downloads`、`/library`，那是**媒体库记录**里的 `source_dir` / `target_dir`：到「媒体库」编辑该库，改成宿主真实路径（容器路径 = 宿主路径），保存时会自动校验同挂载。
+3. 改完跑一次该库的「校验」确认 `same_filesystem: true`（或实证 `probe.ok: true`）；完整清单见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §6.5。
 
 ---
 

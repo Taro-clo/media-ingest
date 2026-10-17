@@ -28,14 +28,18 @@
 - **运行身份默认 `auto`**：`docker/entrypoint.sh` 按 `MEDIA_ROOT`（其次数据目录）的属主自动识别 `PUID`/`PGID`，
   不必先去宿主 `id`；显式传数字时行为不变，识别失败回退 `1000:1001` 并打 WARN。`docker/Dockerfile` 的默认 ENV
   同步改为 `auto`（`docker run` 直接跑也能自适应）。
-- **默认值随 `MEDIA_ROOT` 派生（改到运行期）**：`app/config.py` 新增 `_media_root()` 回退 —— 未显式设置
-  `DEFAULT_SOURCE_ROOT`/`DEFAULT_TARGET_ROOT` 时按 `MEDIA_ROOT` 派生 `<MEDIA_ROOT>/Download`、
-  `<MEDIA_ROOT>/Library`（仍只用于首次建库播种），release compose 不再传这两个变量；`HOST_PATH_MAP` 默认 `{}`（恒等）。
+- **删除「允许的源/目标根目录」设置项**：`allowed_source_roots` / `allowed_target_roots` 从 DB、API、WebUI、
+  健康检查与迁移代码中**整体删除**；不再有首次播种的自动派生，也不再读取 `DEFAULT_SOURCE_ROOT` /
+  `DEFAULT_TARGET_ROOT`（两份 compose、`.env.example`、examples 里都已移除）。建库/改库时改为**直接校验
+  源与目标在同一挂载**（`paths.check_cross_mounts()`）。
+- **健康检查从六项精简为四项**：`db`、`data_dir`、`processors`、`config`；`downloads_readable` /
+  `library_writable` 两项删除（它们只探白名单第一个根，随白名单一起消失）。`docker/healthcheck.sh`、
+  `scripts/acceptance-test.py` 与前端标签同步。
 - **数据卷默认 `./data`**（compose 文件同目录），不再写死 `/vol1/1000/Docker/media-ingest/data`，换机器/换根目录不用改配置。
-- 影响面：部署资产（两份 compose、`.env.example`、`docker/entrypoint.sh`、`docker/Dockerfile`）与
-  `app/config.py` 的**默认值派生**（运行期）；**API、数据库结构、媒体处理结果均不变**，已有 `/data/mlm.db`
-  的实例不受影响（派生值只在首次建库播种）。
-  `examples/validate-deployment-assets.sh` 相应增加 release compose 的锚点单点/派生断言，并反向断言不再引用一键脚本。
+- 影响面：部署资产（两份 compose、`.env.example`、`docker/entrypoint.sh`、`docker/Dockerfile`、健康检查脚本）与
+  **API/DB 契约**（settings 少两个键、`/api/system/health` 少两项、`/api/system/info` 的挂载表改由媒体库推导）；
+  老库升级时自动删除这两个遗留设置项；**媒体处理结果不变**，已有 `/data/mlm.db` 的实例其他数据不受影响。
+  `examples/validate-deployment-assets.sh` 相应改为四项健康检查断言与「不再传 `DEFAULT_*`」反向断言。
 
 ### 变更：出厂默认特典判据（L3）新增第 7 条 `CM集`
 

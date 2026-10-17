@@ -178,7 +178,7 @@ function overrideHtml(lib, globalExtText) {
   </section>`;
 }
 
-function formHtml(lib, allowedSourceRoots, allowedTargetRoots, processors, globalExtText) {
+function formHtml(lib, processors, globalExtText) {
   const procSel = processorOptions(processors, lib.processor_id || '');
   return html`<form class="form" id="le-form" novalidate>
     <section class="card">
@@ -243,14 +243,14 @@ function formHtml(lib, allowedSourceRoots, allowedTargetRoots, processors, globa
             id: 'source_dir',
             label: t('le.source_dir'),
             required: true,
-            hint: t('le.roots.source', { roots: allowedSourceRoots.join('、') || t('common.none') }),
+            hint: t('le.source_dir.hint'),
             control: textInput({ id: 'source_dir', value: lib.source_dir || '', placeholder: t('le.source_dir.ph') })
           })}
           ${field({
             id: 'target_dir',
             label: t('le.target_dir'),
             required: true,
-            hint: t('le.roots.target', { roots: allowedTargetRoots.join('、') || t('common.none') }),
+            hint: t('le.target_dir.hint'),
             control: textInput({ id: 'target_dir', value: lib.target_dir || '', placeholder: t('le.target_dir.ph') })
           })}
         </div>
@@ -356,8 +356,6 @@ export async function render(container, params) {
     }
   }
   if (!alive) return null;
-  const allowedSourceRoots = asList(getSetting('allowed_source_roots', []));
-  const allowedTargetRoots = asList(getSetting('allowed_target_roots', []));
   const globalExt = asList(getSetting('rename_extensions', []));
   const globalExtText = globalExt.length ? globalExt.join('、') : t('le.ov.ext.global_default');
 
@@ -434,7 +432,7 @@ export async function render(container, params) {
 
     <div class="callout callout-danger" id="le-form-error" hidden>${raw(icon('alert', 14))}<span id="le-form-error-text"></span></div>
 
-    ${raw(formHtml(lib, allowedSourceRoots, allowedTargetRoots, processors, globalExtText))}
+    ${raw(formHtml(lib, processors, globalExtText))}
 
     <div class="action-bar">
       <button type="button" class="btn btn-primary" id="le-save">

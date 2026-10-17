@@ -99,7 +99,7 @@ work/
 
 ```
 /usr/local/bin/mlm-entrypoint      root 启动 → 校验 → 对齐 PUID/PGID → chown → gosu 降权（ENTRYPOINT）
-/usr/local/bin/mlm-healthcheck     读容器内 $PORT，请求 /api/system/health，六项 checks 全 true 才退出 0
+/usr/local/bin/mlm-healthcheck     读容器内 $PORT，请求 /api/system/health，四项 checks 全 true 才退出 0
 /srv/mlm/                          WORKDIR + PYTHONPATH（应用根）
 ├── app/                           ← work/app/
 └── web/                           ← work/web/

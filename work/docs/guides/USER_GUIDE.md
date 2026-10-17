@@ -55,7 +55,7 @@
 1. **改密码**：设置页 →「修改密码」→ 当前密码 + 新密码（≥ 8 位）。
    若你曾用 `.env` 的明文口令初始化，改完密码后把 `.env` 里 `ADMIN_PASSWORD` 那行**删掉**（那文件里存明文口令不安全）。
 2. **复制 hook token 与回调命令**：设置页 →「回调 / Hook」→ 点复制，一会儿要粘进 qBittorrent（§9）。
-3. **看一眼系统信息**：设置页 →「系统信息」，确认健康检查**六项**（`db` / `data_dir` / `downloads_readable` / `library_writable` / `processors` / `config`）全为 ✅，并确认「挂载判定」显示源与目标在**同一个挂载**。
+3. **看一眼系统信息**：设置页 →「系统信息」，确认健康检查**四项**（`db` / `data_dir` / `processors` / `config`）全为 ✅，并确认「挂载判定」显示源与目标在**同一个挂载**。
 
 > ⚠️ **不要用「源/目标 `st_dev` 相同」当判据**：内核 `linkat(2)` 比较的是**挂载身份**，两个独立 bind 的
 > `st_dev`、`fsid`、btrfs 子卷号可以**完全相同**而 `link()` 照样 `EXDEV`。判据是 `findmnt -T` 的挂载点相同，
@@ -205,8 +205,8 @@ ls -ld /vol1/1000/Library
 | **类型** | **自由文本**，如 `番剧`、`4K电影` | 只是**展示与统计用的标签**：不决定任何行为、没有枚举约束 |
 | **处理器** | 下拉选一个（内置三个：`hardlink_only` / `bangumi` / `movie`） | **决定实际做什么**，见 §5。下拉里是 `processors/*.yaml` 里的**全部**处理器，你可以自己加 |
 | **启用** | 开 / 关 | 关掉的库**不会**被回调或扫描命中（但可手动跑） |
-| **源目录** | **容器路径**，如 `/vol1/1000/Download/qbittorrent/Bangumi` | 必须在允许的源根（默认 `/vol1/1000/Download`，即整个下载树）之内 |
-| **目标目录** | **容器路径**，如 `/vol1/1000/Library/Bangumi` | 必须在允许的目标根（默认只有 `/vol1/1000/Library`）之内；**不能与源目录相同或互相包含** |
+| **源目录** | **容器路径**，如 `/vol1/1000/Download/qbittorrent/Bangumi` | 必须与目标目录在**同一个挂载**内（跨挂载建不了硬链接） |
+| **目标目录** | **容器路径**，如 `/vol1/1000/Library/Bangumi` | 必须与源目录在**同一个挂载**内；**不能与源目录相同或互相包含** |
 | **匹配分类 / 标签 / 路径前缀** | qBittorrent 的分类名（如 `ban`）/ 标签名 / 内容路径前缀 | 三项是**"与"**关系，**至少填一项**；详见 §4.4 |
 | **孤儿清理** | 开 / 关 | ⚠️ 开着时会**删除**"源已不存在"的目标硬链接文件夹，见 §8.5 |
 | **日志文件** | **只填文件名**，如 `bangumicache.log` | 留空会**按库唯一分配**（先取处理器登记的日志名，被占用时加 `-2`/`-3`…，§5.6）；都在 `/data/logs/` |
@@ -608,7 +608,6 @@ curl -s -b cookies.txt -X POST http://127.0.0.1:18081/api/libraries/1/run \
 | 报错里出现的关键词 | 意思 | 怎么办 |
 |---|---|---|
 | `跨挂载` / `EXDEV` / `link_failed` | 源和媒体库**不在同一个挂载**上（比"不同文件系统"更严），**建不了硬链接** | 把下载根与媒体库根放进**同一条 bind**（`MEDIA_ROOT`）；本应用**不会**复制文件。见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §3 与 [`FAQ.md`](FAQ.md) 第 3、34、35 问 |
-| `不在允许的根路径内` | 库的源/目标目录超出了白名单（默认 `/vol1/1000/Download` 与 `/vol1/1000/Library`） | 改库的路径，或在设置里改 `allowed_source_roots` / `allowed_target_roots`（§8.3） |
 | `无法比较文件系统` / `路径不存在或不可访问` | 源目录或目标父目录不存在；或预检**无法实证**（`same_filesystem: null`） | 检查挂载；确认你填的是**容器路径**而不是误填的旧路径；`null` 不算失败（§3.1、[`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 场景 21） |
 | `Permission denied` | 容器运行身份读不了源 / 写不了目标 | 见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §10（PUID/PGID 与 chown） |
 | `创建硬链接失败: ... File exists` | 目标已存在（常见于**强制重跑**）。若目标就是**同一个 inode 的硬链接**，会算成幂等跳过（`already_linked`，计入 `skipped`），任务**不会**因此失败；只有"同名但 inode 不同"才是真的 `link_failed` | 多数情况**无害，不用处理**。想彻底干净就删掉目标那一个文件再跑（或删掉该作品目录后重跑） |
@@ -678,22 +677,17 @@ curl -s -b cookies.txt -X POST http://127.0.0.1:18081/api/libraries/1/run \
 
 用法见 §9。
 
-### 8.3 路径白名单
+### 8.3 源 / 目标目录的约束
 
-| 项 | 默认 | 说明 |
-|---|---|---|
-| `allowed_source_roots` | `["/vol1/1000/Download"]` | 媒体库的**源目录**必须落在这个范围里 |
-| `allowed_target_roots` | `["/vol1/1000/Library"]` | 媒体库的**目标目录**必须落在这个范围里 |
+v2 起**不再有**「允许的源/目标根目录」设置项（`allowed_source_roots` / `allowed_target_roots` 已从 DB、API、
+WebUI 与健康检查中整体删除，启动迁移会自动清掉老库里的遗留配置）。
 
-格式是 **JSON 数组**：
+现在只校验两件事，都在**新建 / 编辑媒体库**时进行：
 
-```
-["/vol1/1000/Download", "/vol1/1000/Download-2"]
-```
+1. 源目录与目标目录**在同一个挂载**上（否则硬链接会 `EXDEV`，直接报错，不会降级成复制）；
+2. 两者**不得相同、不得互相包含**。
 
-> ⚠️ **改这一项要小心**：它是"防手滑"的安全网。放得太宽（比如写成 `["/"]`）等于关掉了保护。
-> 注意：这里只能是**容器路径**（容器里挂了什么才能写什么）。改完保存，下次新建/编辑库时生效。
-> 📌 这两个默认值来自 env `DEFAULT_SOURCE_ROOT` / `DEFAULT_TARGET_ROOT`，**只在数据库首次播种时生效**；已部署实例改 env 不会改这里。
+填的仍是**容器路径**（单挂载形态下 = 宿主真实路径）。跨挂载的处置见 §7.3 与 [`DEPLOYMENT.md`](DEPLOYMENT.md) §3。
 
 ### 8.4 扫描补偿
 
@@ -790,7 +784,7 @@ curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
 
 | 区块 | 看什么 |
 |---|---|
-| **健康检查** | 六项 `checks` 全为 ✅ 才算健康（`db` / `data_dir` / `downloads_readable` / `library_writable` / `processors` / `config`）；任一项 false 的处置见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §4.4.1 |
+| **健康检查** | 四项 `checks` 全为 ✅ 才算健康（`db` / `data_dir` / `processors` / `config`）；任一项 false 的处置见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §4.4.1 |
 | **路径映射表** | 容器路径 ↔ 宿主路径的对应关系（来自 `HOST_PATH_MAP`）。**它只用于显示**：填错、漏填都**不影响功能**（见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §4.2） |
 | **挂载判定** | 源与目标是否在**同一个挂载**里。预检的 `same_filesystem` 是**三态**：`true`（实证 link 探针证过；若只是挂载 ID 预筛通过会在 `warnings[]` 注明「未实证」）/ `false`（**已证实**建不出 ⇒ `ok=false`、原因进 `errors[]`）/ `null`（判不了，例如源树下找不到可试链的普通文件）。⚠️ **`st_dev` 两个数字相同 ≠ 能建硬链接** —— `linkat(2)` 比较的是挂载身份，`st_dev` 相同但分属两条 bind 时 `link()` 依然 `EXDEV`（"假绿"的根因） |
 

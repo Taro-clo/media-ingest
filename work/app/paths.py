@@ -227,18 +227,6 @@ def check_cross_mounts(source_dir: str, target_dir: str) -> tuple[bool, str | No
     return True, None
 
 
-def assert_allowed(path: str, roots: list[str], kind: str) -> None:
-    """断言 ``path`` 落在 ``roots``（白名单根，容器路径）之内，否则抛 ``ValueError``。
-
-    ``kind`` 只用于中文错误文案（“源目录”/“目标目录”）。"""
-    candidate = normalize(path)
-    for root in roots or []:
-        if is_inside(candidate, root):
-            return
-    allowed = "、".join(normalize(r) for r in (roots or [])) or "（未配置）"
-    raise ValueError(f"{kind} {candidate} 不在允许的根路径内，当前允许：{allowed}。")
-
-
 def find_sample_file(
     root: str,
     *,

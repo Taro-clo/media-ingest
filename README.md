@@ -139,7 +139,7 @@ services:
         source: *data-dir
         target: /data
 
-    # 健康检查沿用镜像 Dockerfile 里那一条（六项 checks 的解析也在镜像里）。
+    # 健康检查沿用镜像 Dockerfile 里那一条（四项 checks 的解析也在镜像里）。
 
     # 日志轮转：避免长期运行把磁盘写满。
     logging:
@@ -207,7 +207,6 @@ docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) �
 | 媒体共同父目录      | `/vol1/1000`                               | `x-media-root`（或 `MEDIA_ROOT=/你的/路径`）                   |
 | 数据目录（`/data`） | compose 同目录的 `./data`                  | `x-data-dir`（或 `MLM_DATA_DIR=/你的/路径/media-ingest/data`） |
 | 运行身份            | `auto`（按媒体目录属主识别）               | `PUID=1000 PGID=1000`                                          |
-| 源 / 目标根         | 由 `MEDIA_ROOT` 自动派生（仅首次建库播种） | 一般不用设；特殊值用 `DEFAULT_SOURCE_ROOT=…`                   |
 | 端口                | `18081`                                    | `x-port`（或 `PORT=18099`）                                    |
 | 路径映射            | 空 = 恒等                                  | 容器内路径 ≠ 宿主路径时才需要 `HOST_PATH_MAP`                  |
 
