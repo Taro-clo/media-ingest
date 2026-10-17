@@ -402,14 +402,14 @@ mkdir -p <项目目录> && cd <项目目录>
 curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/main/work/docker-compose.release.yml
 ```
 
-> 根 [`README.md`](../../../README.md) 的「快速开始（镜像部署）」里有一份完整内容，与仓库文件逐字一致。
+> 根 [`README.md`](../../../README.md) 的「快速开始（镜像部署）」里有一份完整内容，也可以直接复制（以仓库文件为准）。
 > `main` 分支 = 仓库最新版：升级时重新下载本文件即可让 compose 与镜像一起更新。
 > 文件名保持 `docker-compose.release.yml` 即可；也可以改名成默认的 `docker-compose.yml`，之后命令里的 `-f …` 相应去掉。
 
-**③ 按需设置挂载目录、数据目录与端口**：只改 compose 文件头「部署配置」里的锚点，改一处即全部生效：
+**③ 按需设置挂载目录、数据目录与端口**：只改 compose 文件头的三个锚点（`x-media-root` / `x-data-dir` / `x-port`），改一处即全部生效：
 
 ```yaml
-# ===== 部署配置：通常只需要改这一段 =====
+# ===== 文件头三个锚点：通常只需要改这一段 =====
 # 媒体共同父目录（下载目录与媒体库的共同父目录；必改）
 x-media-root: &media-root "/vol1/1000"
 # 容器数据目录（默认本文件同目录的 ./data；想用第 ① 步建的目录就改成绝对路径）

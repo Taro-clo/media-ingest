@@ -65,67 +65,26 @@ mkdir -p /你的/路径/media-ingest && cd /你的/路径/media-ingest
 curl -fsSLO https://raw.githubusercontent.com/Taro-clo/media-ingest/main/work/docker-compose.release.yml
 ```
 
-方法二：自行创建名为 `docker-compose.release.yml` 的文件，把下面整段内容复制进去；
-不熟悉 compose 写法的话不用手改，按步骤 3 改文件头一行即可（`.env` 是可选的）。
+方法二：自行创建名为 `docker-compose.release.yml` 的文件，把下面整段内容复制进去
 
 ```yaml
-# =============================================================================
-# media-ingest —— docker-compose.release.yml（镜像部署）
-# =============================================================================
-# 用预构建镜像直接跑：不需要源码、不需要本地构建，也不需要 .env。
-# 安装分三步（详见 docs/guides/DEPLOYMENT.md §4.6）：
-#
-#   1. 创建容器数据目录（SQLite、日志、secret.key、config 都写这里；路径随意，按自己的环境建）：
-#        mkdir -p /你的/路径/media-ingest-data
-#
-#   2. 保存本文件（也可以从仓库 README 复制内容自行创建）：
-#        https://raw.githubusercontent.com/Taro-clo/media-ingest/main/work/docker-compose.release.yml
-#      （`main` 分支 = 仓库最新版；升级时重新下载本文件，再 docker compose pull，compose 与镜像一起更新）
-#
-#   3. 只改下面「部署配置」里的一行（一般就是 `x-media-root`），然后启动：
-#        docker compose -f docker-compose.release.yml up -d
-#      `docker compose -f docker-compose.release.yml ps` 出现 (healthy) 即成功；
-#      浏览器打开 http://<本机 IP>:18081 建管理员、建媒体库。
-#
-# 为什么只改一处：媒体路径、数据目录、端口各定义一个 YAML 锚点（`&media-root` /
-# `&data-dir` / `&port`），environment、ports、volumes 全部引用同一个锚点（`*media-root`
-# 等）—— 改定义处一次，所有引用一起生效，不会出现"挂载改了、环境变量没改"的不一致。
-#
-# 也仍然支持用同名环境变量覆盖（`.env` 或命令行前缀都行，此时不必改本文件）：
-#     MEDIA_ROOT=/你的/下载目录与媒体库的共同父目录    # 一般只改这一项
-#     MLM_DATA_DIR=/你的/路径/media-ingest-data       # 可选；默认是本文件同目录的 ./data
-#     PORT=18081                                      # 可选
-#
-# 其它都有自适应默认值：PUID/PGID=auto（取媒体挂载属主）、数据卷=./data、
-# 首次建库的源/目标根=<MEDIA_ROOT>/Download 与 <MEDIA_ROOT>/Library。
-#
-# 部署前必读：**下载目录与媒体库必须落在同一个挂载里**（硬链接不能跨挂载）。
-# 所以这里只挂一条"共同父目录"，且容器内路径 = 宿主路径。
-# ⚠️ 不要拆成 /downloads、/library 两条 bind：那样硬链接必然失败（EXDEV）。
-# ⚠️ MEDIA_ROOT 必须是宿主上**真实存在**的目录，否则 Docker 会以 root 新建空目录。
-# ⚠️ 数据卷（MLM_DATA_DIR）只要求可写，不要求和媒体同一文件系统。
-#
-# 版本：不写死版本号，默认用 latest（跟随最新发布）；要钉住固定版本就设 MLM_VERSION=1.0.0。
-# 镜像在 GHCR（GitHub Container Registry），多架构（linux/amd64、linux/arm64）：
-#     ghcr.io/taro-clo/media-ingest:latest
-# =============================================================================
-
 name: media-ingest
 
 # =============================================================================
-# 部署配置：通常只需要改这一段（改定义处一次，全文件引用一起生效）
-# =============================================================================
-# 媒体共同父目录（下载目录与媒体库的共同父目录；容器内路径 = 宿主路径）：
-#   * 必须填宿主上**已存在**的绝对路径；
-#   * 下载目录与媒体库都在它下面（例如 /vol1/1000/Download 与 /vol1/1000/Library → 填 /vol1/1000）。
+# 挂载媒体父目录（下载目录与媒体库的共同父目录；容器内路径 = 宿主路径）：
+#   * 必须填宿主上已存在的绝对路径；
+#   * 下载目录与媒体库都在它下面（例如 下载文件在/vol1/1000/Download ，则把双引号内的内容改为 /vol1/1000，媒体库将创建在其之下）。
 x-media-root: &media-root "${MEDIA_ROOT:-/vol1/1000}"
 
-# 容器数据目录（mlm.db / secret.key / config / logs；唯一必须备份的东西）：
-#   默认放本文件同目录的 ./data；想用第 1 步建好的目录就改成那个绝对路径。
+# 容器数据目录：
+#   如果本文件在第 1 步建好的目录内则可以不改。
 x-data-dir: &data-dir "${MLM_DATA_DIR:-./data}"
 
-# WebUI 端口（宿主与容器共用同一个值；被占用时换成空闲端口）。
+# WebUI 端口（未被占用时不必修改）。
 x-port: &port "${PORT:-18081}"
+
+# =============================================================================
+# 如果不熟悉compose写法，以下内容都不必修改。
 
 services:
   media-ingest:
@@ -190,12 +149,10 @@ services:
         max-file: "3"
 ```
 
-> 上面内容与仓库文件 [`work/docker-compose.release.yml`](work/docker-compose.release.yml) 逐字一致，以仓库文件为准。
-
-**3. 按需设置挂载目录、数据目录与端口**：只改 compose 文件头「部署配置」里的锚点定义（一般就是 `x-media-root`）。同一个值靠 YAML 锚点被 `environment` / `ports` / `volumes` 共同引用，改定义处一次，其它地方自动跟着变：
+**3. 按需设置挂载目录、数据目录与端口**：只改 compose 文件头的三个锚点定义 `x-media-root` / `x-data-dir` / `x-port`（一般只需改 `x-media-root`）。同一个值靠 YAML 锚点被 `environment` / `ports` / `volumes` 共同引用，改定义处一次，其它地方自动跟着变：
 
 ```yaml
-# ===== 部署配置：通常只需要改这一段 =====
+# ===== 文件头三个锚点：通常只需要改这一段 =====
 # 媒体共同父目录（下载目录与媒体库的共同父目录；必改）
 x-media-root: &media-root "/vol1/1000"
 # 容器数据目录（默认本文件同目录的 ./data；想用第 1 步建的目录就改成绝对路径）
@@ -239,15 +196,15 @@ docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) �
 
 默认值（不改文件、不建 `.env` 也能跑，但媒体目录会按 `/vol1/1000` 找）：
 
-| 项                  | 默认                                                     | 改法（改 compose 锚点，或设同名环境变量）          |
-| ------------------- | -------------------------------------------------------- | -------------------------------------------------- |
-| 镜像版本            | `latest`（跟随最新发布）                                 | `MLM_VERSION=1.0.0`（钉住固定版本）                |
-| 媒体共同父目录      | `/vol1/1000`                                             | `x-media-root`（或 `MEDIA_ROOT=/你的/路径`）       |
-| 数据目录（`/data`） | compose 同目录的 `./data`                                | `x-data-dir`（或 `MLM_DATA_DIR=/你的/路径/data`）  |
-| 运行身份            | `auto`（按媒体目录属主识别）                             | `PUID=1000 PGID=1000`                              |
-| 源 / 目标根         | 由 `MEDIA_ROOT` 自动派生（仅首次建库播种）               | 一般不用设；特殊值用 `DEFAULT_SOURCE_ROOT=…`       |
-| 端口                | `18081`                                                  | `x-port`（或 `PORT=18099`）                        |
-| 路径映射            | 空 = 恒等                                                | 容器内路径 ≠ 宿主路径时才需要 `HOST_PATH_MAP`      |
+| 项                  | 默认                                       | 改法（改 compose 锚点，或设同名环境变量）         |
+| ------------------- | ------------------------------------------ | ------------------------------------------------- |
+| 镜像版本            | `latest`（跟随最新发布）                   | `MLM_VERSION=1.0.0`（钉住固定版本）               |
+| 媒体共同父目录      | `/vol1/1000`                               | `x-media-root`（或 `MEDIA_ROOT=/你的/路径`）      |
+| 数据目录（`/data`） | compose 同目录的 `./data`                  | `x-data-dir`（或 `MLM_DATA_DIR=/你的/路径/data`） |
+| 运行身份            | `auto`（按媒体目录属主识别）               | `PUID=1000 PGID=1000`                             |
+| 源 / 目标根         | 由 `MEDIA_ROOT` 自动派生（仅首次建库播种） | 一般不用设；特殊值用 `DEFAULT_SOURCE_ROOT=…`      |
+| 端口                | `18081`                                    | `x-port`（或 `PORT=18099`）                       |
+| 路径映射            | 空 = 恒等                                  | 容器内路径 ≠ 宿主路径时才需要 `HOST_PATH_MAP`     |
 
 - `MEDIA_ROOT` 必须是宿主上**已存在**的目录，且下载目录与媒体库都在它下面（硬链接的硬前提）。
 - 镜像默认 `latest`：每次发布都会更新，重装 / 重建容器时可能拿到新版本；想钉住某次发布就设 `MLM_VERSION=1.0.0`（改锚点、写 `.env` 或命令前加变量都行；版本号见 [Releases](https://github.com/Taro-clo/media-ingest/releases) 与 [`work/CHANGELOG.md`](work/CHANGELOG.md)）。

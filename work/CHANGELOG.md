@@ -16,8 +16,8 @@
 ### 部署：预构建镜像手动安装、默认零配置（`linux/amd64` / `linux/arm64` 均可）
 
 - **镜像部署改成手动三步**：① 创建容器数据目录（`mkdir -p`，路径自选）→ ② 下载
-  `work/docker-compose.release.yml`（或从 README 复制内容自行创建）→ ③ 按需改 compose 文件头
-  「部署配置」里的锚点（媒体挂载 `x-media-root` 必改；数据目录 `x-data-dir`、端口 `x-port` 按需），然后
+  `work/docker-compose.release.yml`（或从 README 复制内容自行创建）→ ③ 按需改 compose 文件头的三个锚点
+  （媒体挂载 `x-media-root` 必改；数据目录 `x-data-dir`、端口 `x-port` 按需），然后
   `docker compose -f docker-compose.release.yml up -d`。**不再提供一键安装脚本**。
 - **免 `.env` 的单点配置**：release compose 用 YAML 锚点（`x-media-root` / `x-data-dir` / `x-port`）
   把 `environment` / `ports` / `volumes` 收成同一处定义，改一行即全部生效；`.env` 与命令行环境变量
