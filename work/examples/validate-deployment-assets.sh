@@ -85,7 +85,7 @@ cp "$REPO/docker/Dockerfile" "$WORK/"
 [ -f "$REPO/examples/minimal-repro.sh" ] && cp "$REPO/examples/minimal-repro.sh" "$WORK/"
 [ -f "$REPO/.dockerignore" ] && cp "$REPO/.dockerignore" "$WORK/"
 [ -f "$REPO/examples/qbittorrent-autorun.md" ] && cp "$REPO/examples/qbittorrent-autorun.md" "$WORK/"
-[ -f "$REPO/examples/nas-deploy.md" ] && cp "$REPO/examples/nas-deploy.md" "$WORK/"
+[ -f "$REPO/examples/deploy-walkthrough.md" ] && cp "$REPO/examples/deploy-walkthrough.md" "$WORK/"
 [ -f "$REPO/web/js/pages/settings.js" ] && mkdir -p "$WORK/settings" && cp "$REPO/web/js/pages/settings.js" "$WORK/settings/settings.js"
 
 cd "$WORK"
@@ -912,19 +912,19 @@ else:
     else:
         print("  [PASS] minimal-repro.sh 没有用 \"processor\": 别名")
 
-# nas-deploy.md 是给人抄的文档：只查**传参形式**；正文里提醒"该开关默认关闭、开启会改到源文件权限位"是允许的
-nd = load("nas-deploy.md")
+# deploy-walkthrough.md 是给人抄的文档：只查**传参形式**；正文里提醒"该开关默认关闭、开启会改到源文件权限位"是允许的
+nd = load("deploy-walkthrough.md")
 if nd is None:
-    print("  [SKIP] 未找到 examples/nas-deploy.md")
+    print("  [SKIP] 未找到 examples/deploy-walkthrough.md")
 else:
     if "processor_id" in nd:
-        print("  [PASS] nas-deploy.md 的建库示例用 processor_id")
+        print("  [PASS] deploy-walkthrough.md 的建库示例用 processor_id")
     else:
-        print("  [FAIL] nas-deploy.md 的建库示例没有 processor_id"); FAIL += 1
+        print("  [FAIL] deploy-walkthrough.md 的建库示例没有 processor_id"); FAIL += 1
     if re.search(r'"permission_mode"\s*:', nd):
-        print("  [FAIL] nas-deploy.md 的请求体里仍带 \"permission_mode\":（示例保持默认关闭，不要在可复制示例里出现）"); FAIL += 1
+        print("  [FAIL] deploy-walkthrough.md 的请求体里仍带 \"permission_mode\":（示例保持默认关闭，不要在可复制示例里出现）"); FAIL += 1
     else:
-        print("  [PASS] nas-deploy.md 的请求体里没有 permission_mode 字段（保持默认关闭）")
+        print("  [PASS] deploy-walkthrough.md 的请求体里没有 permission_mode 字段（保持默认关闭）")
 
 # 原生实现的入口必须**默认关闭**，否则「默认关」就只是文档口号
 hl = load("app/processors/hardlink.py")

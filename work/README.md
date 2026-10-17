@@ -51,7 +51,7 @@
 
 ## 3. 安装与首次使用
 
-最快路径（详细说明见 [`docs/guides/DEPLOYMENT.md`](docs/guides/DEPLOYMENT.md) §4；照着敲的完整演练见 [部署演练](examples/nas-deploy.md)）：
+最快路径（详细说明见 [`docs/guides/DEPLOYMENT.md`](docs/guides/DEPLOYMENT.md) §4；照着敲的完整演练见 [部署演练](examples/deploy-walkthrough.md)）：
 
 ```bash
 cd /path/to/work

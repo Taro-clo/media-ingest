@@ -58,8 +58,8 @@ work/
 │   ├── guides/             用户手册：USER_GUIDE / DEPLOYMENT / TROUBLESHOOTING / FAQ
 │   └── meta/               结构与证据：STRUCTURE（本文）/ TEST-MAP / EVIDENCE / KNOWN_ISSUES
 ├── examples/               可直接抄的部署与自检示例
-│   ├── docker-compose.nas.yml      带注释的部署编排示例
-│   ├── nas-deploy.md               从零到硬链接成立的完整演练
+│   ├── docker-compose.example.yml      带注释的部署编排示例
+│   ├── deploy-walkthrough.md               从零到硬链接成立的完整演练
 │   ├── qbittorrent-autorun.md      qBittorrent 回调配置（命令的权威副本）
 │   ├── minimal-repro.sh            任意 Docker 机器上的最小复现
 │   └── validate-deployment-assets.sh  部署资产静态自验（只读）
@@ -69,7 +69,7 @@ work/
 │   ├── pytest-in-container.sh   把 tests/ 拷进容器跑 pytest
 │   ├── acceptance-test.py       全量验收 harness（HTTP + docker exec 断言）
 │   ├── syntax-check.py          Python AST + node --check 语法体检
-│   ├── backup-to-nas.sh         bundle + 源码 tar 归档并自检
+│   ├── backup-bundle.sh         bundle + 源码 tar 归档并自检
 │   └── README.md                工具链用法与变量速查
 ├── reports/                验收报告与产物
 │   ├── 1.0.0/              1.0.0 首发验收报告

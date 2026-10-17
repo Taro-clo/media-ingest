@@ -6,7 +6,7 @@
 #   (或 scp 推到 /tmp/)
 #
 # 用法：
-#   sh scripts/backup-to-nas.sh <bundle 路径> <版本号> [源码树]
+#   sh scripts/backup-bundle.sh <bundle 路径> <版本号> [源码树]
 # 默认：
 #   源码树 /vol1/1000/Docker/media-ingest/build-src
 # 环境变量：
@@ -16,7 +16,7 @@
 # 说明：新的 bundle / tar 用版本号命名，**不覆盖**历史备份。
 set -e
 
-BUNDLE="${1:?用法: backup-to-nas.sh <bundle 路径> <版本号> [源码树]}"
+BUNDLE="${1:?用法: backup-bundle.sh <bundle 路径> <版本号> [源码树]}"
 VER="${2:?缺少版本号，例如 1.0.0}"
 SRC="${3:-/vol1/1000/Docker/media-ingest/build-src}"
 BK="${BACKUP_DIR:-/vol1/1000/Docker/media-ingest/backups}"

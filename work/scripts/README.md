@@ -11,7 +11,7 @@
 | `pytest-in-container.sh` | 把当前源码树的 `tests/` 送进一次性容器跑 pytest（镜像里不带 tests） | `bash scripts/pytest-in-container.sh media-ingest:1.0.0` |
 | `acceptance-test.py` | 56 项全量功能验收：HTTP + `docker exec` 检查正在运行的实例（建库/建链/改名/重跑/孤儿清理/回调/看板/日志等） | `MLM_CONTAINER=media-ingest-test MLM_EXPECT_VERSION=1.0.0 python3 scripts/acceptance-test.py` |
 | `syntax-check.py` | 提交前语法自检：AST 解析 `app/`+`tests/`，`node --check` 检查前端 js | `python3 scripts/syntax-check.py` |
-| `backup-to-nas.sh` | 归档 bundle + 源码 tar + sha256，并用 bundle 克隆自检（HEAD / tag / 版本号） | `sh scripts/backup-to-nas.sh /tmp/media-ingest-v<版本>.bundle <版本>` |
+| `backup-bundle.sh` | 归档 bundle + 源码 tar + sha256，并用 bundle 克隆自检（HEAD / tag / 版本号） | `sh scripts/backup-bundle.sh /tmp/media-ingest-v<版本>.bundle <版本>` |
 
 ## acceptance-test.py 环境变量
 

@@ -1,5 +1,5 @@
 # =============================================================================
-# 部署示例：完整可用版本 —— examples/docker-compose.nas.yml
+# 部署示例：完整可用版本 —— examples/docker-compose.example.yml
 # =============================================================================
 # 与仓库根的 docker-compose.yml 的区别：
 #   * 示例宿主路径**内联**给出（可按你的环境修改，不依赖 .env 插值），因此可以直接 `-f` 运行；
@@ -16,8 +16,8 @@
 # 用法（在仓库根执行）：
 #     sudo mkdir -p /vol1/1000/Docker/media-ingest/data
 #     sudo chown -R 1000:1001 /vol1/1000/Docker/media-ingest
-#     docker compose -f examples/docker-compose.nas.yml up -d --build
-#     docker compose -f examples/docker-compose.nas.yml ps
+#     docker compose -f examples/docker-compose.example.yml up -d --build
+#     docker compose -f examples/docker-compose.example.yml ps
 #
 # 说明：
 #   * 本文件**不**声明 env_file，所以没有 .env 也能跑；想用 .env 覆盖时，
@@ -112,8 +112,8 @@ services:
         max-file: "3"
 
 # -----------------------------------------------------------------------------
-# 部署后用这几条确认（命令同样需要 -f examples/docker-compose.nas.yml）：
-#   docker compose -f examples/docker-compose.nas.yml config >/dev/null && echo "compose 配置合法"
+# 部署后用这几条确认（命令同样需要 -f examples/docker-compose.example.yml）：
+#   docker compose -f examples/docker-compose.example.yml config >/dev/null && echo "compose 配置合法"
 #   curl -s http://127.0.0.1:18081/api/system/health
 #      期望 {"status":"ok","checks":{"db":true,"data_dir":true,
 #            "processors":true,"config":true}}

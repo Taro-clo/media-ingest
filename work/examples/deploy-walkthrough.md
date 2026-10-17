@@ -3,7 +3,7 @@
 > **本文是一次跟做的 walkthrough**，约 15 分钟，终点是「用 `stat` 证明媒体库里的文件与下载源是同一个 inode」。
 > 前置检查、卷挂载原理、升级备份、排错不在本文，见 [`DEPLOYMENT.md`](../docs/guides/DEPLOYMENT.md) §1 / §2–§3 / §6–§7。
 
-**本文所有路径、端口、UID 都是示例值**，用前按下面这张表整篇替换（`docker-compose.nas.yml` 里是同一组值）：
+**本文所有路径、端口、UID 都是示例值**，用前按下面这张表整篇替换（`docker-compose.example.yml` 里是同一组值）：
 
 | 占位 | 示例值（本文通篇用它） | 含义 / 怎么定 |
 |---|---|---|
@@ -35,8 +35,8 @@
 sudo mkdir -p /vol1/1000/Docker/media-ingest/data /vol1/1000/Library
 sudo chown -R 1000:1001 /vol1/1000/Docker/media-ingest
 # 2) 构建并启动（在仓库根执行；该 compose 的 build.context 是 ..），等 STATUS 出现 (healthy)
-docker compose -f examples/docker-compose.nas.yml up -d --build
-docker compose -f examples/docker-compose.nas.yml ps
+docker compose -f examples/docker-compose.example.yml up -d --build
+docker compose -f examples/docker-compose.example.yml ps
 ```
 
 > 长期部署走根目录 `docker-compose.yml` + `.env`（只差「示例值走插值」这一点），见 DEPLOYMENT §4.2–§4.3。
@@ -170,7 +170,7 @@ sh examples/validate-deployment-assets.sh .
 # 判据：末尾汇总里 FAIL 计数为 0（PASS 条数随版本增长，别记死数字）。
 # 它只做静态检查，不构建镜像、不起容器；镜像可构建、容器 healthy、硬链接真建立仍须真机验收，即 §1 与 §3。
 
-docker compose -f examples/docker-compose.nas.yml down    # 停容器，媒体库里的硬链接不动
+docker compose -f examples/docker-compose.example.yml down    # 停容器，媒体库里的硬链接不动
 # 想真正「重来」：再删数据目录（数据库/密钥/配置/日志都在里面）
 # sudo rm -rf /vol1/1000/Docker/media-ingest/data
 # 删硬链接不删数据（只是少一个名字）；但删掉源里的原文件会让硬链接变成孤儿 —— 内容还在，直到最后一个链接被删。

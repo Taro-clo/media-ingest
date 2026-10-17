@@ -219,7 +219,7 @@ docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) �
 - 想从源码构建（改代码 / 访问不了 GHCR）：见下方「快速开始（从源码构建）」。
 
 > 失败排查、升级回滚与备份见 [`work/docs/guides/DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md)；
-> 从零开始的完整演练见 [部署实战演练](work/examples/nas-deploy.md)。
+> 从零开始的完整演练见 [部署实战演练](work/examples/deploy-walkthrough.md)。
 
 ## 快速开始（从源码构建）
 
@@ -250,7 +250,7 @@ docker compose -f docker-compose.release.yml ps      # STATUS 出现 (healthy) �
 
 5. 浏览器打开 `http://<宿主机 IP>:18081`，按向导创建管理员，然后新建第一个媒体库。
 
-> 逐条命令、预期输出的完整演练见 [部署实战演练](work/examples/nas-deploy.md)；
+> 逐条命令、预期输出的完整演练见 [部署实战演练](work/examples/deploy-walkthrough.md)；
 > 每个选项的详细说明见 [`work/docs/guides/DEPLOYMENT.md`](work/docs/guides/DEPLOYMENT.md)。
 
 ## 第一次使用
