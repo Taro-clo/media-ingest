@@ -1,0 +1,42 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+coverage.xml
+.coverage
+htmlcov/
+
+# ---- 运行时数据（绝不入库）----
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+secret.key
+
+# ---- 本地临时/探针 ----
+.probe/
+.tmp/
+tmp/
+*.local
+
+# 本地测试媒体库（由验收 / 夹具脚本生成，不入库）
+/testmedia/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 环境变量（含密钥）----
+.env
+.env.*
+!.env.example

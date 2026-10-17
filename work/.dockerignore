@@ -1,0 +1,87 @@
+# =============================================================================
+# .dockerignore —— 限制 docker build 的 build context
+# =============================================================================
+# 目的：build context 里只留镜像真正需要的三样东西 ——
+#   app/     Python 包（含 app/routers/、app/processors/）
+#   web/     静态前端（web/js/、web/css/、index.html）
+#   docker/  entrypoint.sh + healthcheck.sh（安装到 /usr/local/bin/）
+# 没有这份文件，`docker build` 会把整个仓库（含 .git/ 的全部历史对象、docs/、
+# tests/、examples/、reports/、scripts/）打包上传；更危险的是**未来漂移**：
+# 哪天有人把 Dockerfile 改成 `COPY . /srv/mlm`，.env（含 ADMIN_PASSWORD /
+# SECRET_KEY）、data/mlm.db、data/secret.key 就会**直接烙进镜像层**并随镜像分发泄漏。
+# 这份文件是阻止这类事故的结构性保障。
+#
+# ⚠️ 本文件**不得**忽略 Dockerfile 实际 COPY 的源路径（共 4 条，逐条核对过）：
+#      COPY app/ /srv/mlm/app/                                  → 保留 app/
+#      COPY web/ /srv/mlm/web/                                  → 保留 web/
+#      COPY docker/entrypoint.sh /usr/local/bin/mlm-entrypoint  → 保留 docker/
+#      COPY docker/healthcheck.sh /usr/local/bin/mlm-healthcheck→ 保留 docker/
+#   因此下面只忽略 app/、web/、docker/ **内部的临时产物**，不忽略目录本身。
+#   核对方法：改完本文件后跑 `sh examples/validate-deployment-assets.sh .`
+#   （§9 逐条断言每个 COPY 源都没被忽略，并反向断言 .env / data/ 等确实被排除）。
+
+# ---- 版本控制与元数据 --------------------------------------------------------
+.git
+.gitignore
+.dockerignore
+
+# ---- 与本镜像无关的仓库目录 --------------------------------------------------
+docs/
+tests/
+examples/
+scripts/
+reports/
+.agents/
+.tmp/
+.probe/
+
+# ---- 仓库级文档与编排文件（镜像内不需要）------------------------------------
+README.md
+CHANGELOG.md
+docker-compose.yml
+AGENTS.md
+
+# ---- 机密与运行期状态：绝不进镜像 -------------------------------------------
+# data/ 是宿主运行期数据卷（SQLite、日志、config/、secret.key）；镜像里只有空的
+# /data 与 /data/config 骨架。下面几条就是"运行期数据绝不烙进镜像层"的结构性保障。
+.env
+.env.*
+!.env.example
+data/
+data/config/
+*.db
+*.db-wal
+*.db-shm
+secret.key
+*.log
+logs/
+
+# ---- 源码包与发布归档（NAS 上传用的中转文件，不属于构建上下文）--------------
+*.tgz
+*.tar.gz
+
+# ---- Python 构建产物 --------------------------------------------------------
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# ---- 开发期临时文件（仓库里确实存在这些）-----------------------------------
+app/_selftest.py
+**/_check.py
+**/_classcheck.py
+**/_smoke.html
+# 仓库根的一次性探针脚本规则（免得将来在根目录写一个探针脚本被 COPY 进镜像层）
+probe_equivalence.py
+
+# ---- 编辑器与操作系统垃圾 ----------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*~
+*.swp

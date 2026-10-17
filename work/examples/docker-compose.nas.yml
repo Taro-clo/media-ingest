@@ -1,0 +1,140 @@
+# =============================================================================
+# NAS 部署示例：完整可用版本 —— examples/docker-compose.nas.yml
+# =============================================================================
+# 与仓库根的 docker-compose.yml 的区别：
+#   * 示例宿主路径**内联**给出（可按你的环境修改，不依赖 .env 插值），因此可以直接 `-f` 运行；
+#   * 构建上下文写成 `..`（本文件在 examples/ 下，上下文取其上一级仓库根）；
+#   * environment 内联示例默认值（PUID=1000 / PGID=1001 / ADMIN_* 留空）。
+#
+# 要点：容器**自包含**（硬链接与重命名都是应用自己的原生实现），且
+# **源与目标共用一条共同父挂载**（本文件即 `/vol1/1000`，容器内路径 = 宿主路径），
+# 因此**只有两条卷**：媒体共同父挂载 + 数据卷。不要把
+# 源/库拆成两条 bind —— 拆开会让 `link()` 一律 `EXDEV`（完整理由见仓库根
+# docker-compose.yml 文件头第 1 点：内核 `fs/namei.c` 的 `do_linkat()` 比较的是
+# 两次路径解析得到的**挂载身份**，与 `st_dev`/`fsid`/子卷是否相同无关）。
+#
+# 用法（在仓库根执行）：
+#     sudo mkdir -p /vol1/1000/Docker/media-ingest/data
+#     sudo chown -R 1000:1001 /vol1/1000/Docker/media-ingest
+#     docker compose -f examples/docker-compose.nas.yml up -d --build
+#     docker compose -f examples/docker-compose.nas.yml ps
+#
+# 说明：
+#   * 本文件**不**声明 env_file，所以没有 .env 也能跑；想用 .env 覆盖时，
+#     请改用仓库根的 docker-compose.yml（它带 env_file: .env）。
+#   * 由于没有 env_file，compose 的 ${VAR} 会从**当前 shell 环境**取值；
+#     下面用 ${VAR:-默认值} 写成"有则用、无则取默认"，两种用法都安全。
+# =============================================================================
+
+name: media-ingest
+
+services:
+  media-ingest:
+    build:
+      # examples/ 的上一级 = 仓库根（Dockerfile 需要同时看到 app/ 与 web/）
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: media-ingest:latest
+    container_name: media-ingest
+    restart: unless-stopped
+
+    environment:
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1001}"
+      TZ: "${TZ:-Asia/Shanghai}"
+      LANG: "C.UTF-8"
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+      DATA_DIR: "/data"
+      # 配置文件镜像目录（libraries.yaml + processors/*.yaml），在 /data 卷内，
+      # 无需额外挂载。**同步周期不是 env**：它来自 DB 设置键
+      # `config_sync_interval_seconds`（默认 5 秒、0–86400、0 = 不导入外部改动），
+      # 请在 WebUI 设置页改 —— 本文件刻意不写同名 env（写了也不生效）。
+      CONFIG_DIR: "/data/config"
+      PORT: "${PORT:-18081}"
+      # 容器路径 -> 宿主路径映射（键必须带前导 /）。**只用于展示与路径换算**，
+      # 不参与文件操作，也不存在"漏填就会全量重扫"这回事。
+      # 说明与自查方式见 .env.example 第 5 节 / docs/contracts/ARCHITECTURE.md §6.1。
+      # ⚠️ 容器路径 = 宿主路径 ⇒ 这里是**恒等映射**，只用于"非恒等部署"的逃生口。
+      HOST_PATH_MAP: '{"/vol1/1000":"/vol1/1000"}'
+      # ---- 首次建库时"允许的源/目标根目录"的缺省值 ----
+      # ⚠️ 只用于 **DB 首次播种**（SQLite 里还没有这两条设置时）。DB 一旦存在，
+      #    改这里的 env **不生效**；那时唯一正确的改法是在 WebUI「设置」页（或
+      #    PUT /api/settings）里改"允许的源根目录 / 允许的目标根目录"。
+      # ⚠️ 源根缺省值是**整个下载树** /vol1/1000/Download（不是只到 qbittorrent 子目录）：
+      #    这样才能给 Download 下任意子目录建库。要收紧就在设置页改「允许的源根目录」。
+      DEFAULT_SOURCE_ROOT: "${DEFAULT_SOURCE_ROOT:-/vol1/1000/Download}"
+      DEFAULT_TARGET_ROOT: "${DEFAULT_TARGET_ROOT:-/vol1/1000/Library}"
+      # ---- 媒体共同父挂载的容器内路径（与下面 volumes[0] 同一值）----
+      # 只为让 entrypoint 做两条**只读**结构检查：MEDIA_ROOT 必须是绝对路径、不能是 /、
+      # 不能等于 DATA_DIR，且 DATA_DIR 与 MEDIA_ROOT **不在同一挂载**里（否则启动时那条
+      # `chown -R $DATA_DIR` 会递归进媒体挂载、改到媒体文件属主）。命中即拒绝启动。
+      # 应用代码**不读**它（应用读的是 DB 设置里的"允许的源/目标根目录"）。
+      MEDIA_ROOT: "${MEDIA_ROOT:-/vol1/1000}"
+      SECRET_KEY: "${SECRET_KEY:-}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+
+    ports:
+      # 与仓库根 docker-compose.yml 同一原则：宿主侧与容器侧都用 ${PORT:-18081}。
+      # 只写 "${PORT:-18081}:18081" 而 environment.PORT 又是别值时，容器会绑到 PORT
+      # 上、而宿主仍映射到容器 18081 → 连不上且容器永远 unhealthy（根因同上）。
+      # 若只想改**宿主**端口，请改成 "${PORT:-18081}:18081" 并把 environment.PORT 改回 "18081"。
+      - "${PORT:-18081}:${PORT:-18081}"
+
+    volumes:
+      # 1) 媒体：**单一共同父挂载**（源与目标都在里面 ⇒ `link()` 不会 EXDEV）
+      #    容器内路径 = 宿主路径（因此回调里的路径、日志与 WebUI 显示的都是宿主真实路径）。
+      #    ⚠️ 挂载点必须**已存在**于宿主：Docker 会对不存在的 bind 源路径以 root 建目录
+      #       （那会造出一个空的 /vol1/1000 覆盖真实数据）。
+      - "/vol1/1000:/vol1/1000"
+      # 2) 应用数据：rw（SQLite / 任务日志 / 每库日志 / secret.key / config 目录）
+      - "/vol1/1000/Docker/media-ingest/data:/data"
+      # ⚠️ 这里**只有这两条**。源与目标**必须**共用上面第一条共同父挂载：
+      #    跨挂载的 `link()` 一律 EXDEV（见文件头），所以"源/库各挂一条 bind"
+      #    的形态建不出硬链接（任务会报 linked=0 / link_failed=1）。
+      #    若需要单独备份/版本化配置，可另加（**二选一**，别与 /data 重复挂同一目录）：
+      #      - "/vol1/1000/Docker/media-ingest/config:/data/config"
+      #    单挂时先在宿主 `mkdir -p .../config && chown -R 1000:1001 .../config`，
+      #    否则 Docker 会以 root 建目录，而 entrypoint 只递归 chown /data 本身。
+
+    # 刻意**不覆盖** healthcheck：镜像 Dockerfile 里那份才是真生效的，它调
+    #   CMD ["/bin/sh", "/usr/local/bin/mlm-healthcheck"]
+    # 而 healthcheck.sh 读**容器内** $PORT（改 .env 的 PORT 时自动跟随），请求
+    # /api/system/health 并解析 body：**只有 status=="ok" 且 checks 全 true 才 exit 0**
+    # （该端点无论健康与否都返回 HTTP 200，所以只看状态码的探针永远不会失败）。
+    # checks 为六项，**全部必需**（缺键也判 unhealthy）：
+    # db / data_dir / downloads_readable / library_writable / processors / config。
+    # 这里若写死 CMD-SHELL 拼 ...:18081/...，PORT 一改就会探测旧端口 → 容器永远 unhealthy
+    # （端口一律通过 ${PORT} 插值，不要写死数字）。
+    # 需要临时调探针间隔时，只覆写参数、别覆写 test：
+    #   healthcheck:
+    #     test: ["CMD", "/bin/sh", "/usr/local/bin/mlm-healthcheck"]
+    #     interval: 15s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# -----------------------------------------------------------------------------
+# 部署后用这几条确认（命令同样需要 -f examples/docker-compose.nas.yml）：
+#   docker compose -f examples/docker-compose.nas.yml config >/dev/null && echo "compose 配置合法"
+#   curl -s http://127.0.0.1:18081/api/system/health
+#      期望 {"status":"ok","checks":{"db":true,"data_dir":true,
+#            "downloads_readable":true,"library_writable":true,"processors":true,"config":true}}
+#   docker exec media-ingest sh -c 'id'
+#      期望显示 uid=1000 gid=1001
+#   docker inspect media-ingest --format '{{json .Mounts}}' | tr ',' '\n' | grep -o '"Destination":"[^"]*"'
+#      期望**恰好两条**：/vol1/1000 与 /data（源与目标同一条共同父挂载；没有 /downloads 与 /library）
+#   docker exec media-ingest sh -c 'grep -E " /vol1/1000 | /data " /proc/self/mountinfo | cut -d" " -f1,5'
+#      期望两条挂载的**第 1 个字段（挂载 ID）不同** —— 证明媒体挂载与数据卷是两条独立挂载，
+#      因此启动时的 `chown -R /data` 绝不可能碰到媒体文件。若两条 ID 相同，entrypoint 会拒绝启动。
+#   docker exec media-ingest sh -c 'w=$(mktemp -d /vol1/1000/Library/.mlm-probe.XXXXXX); \
+#       f=$(find /vol1/1000/Download/qbittorrent -maxdepth 3 -type f -print -quit); \
+#       ln "$f" "$w/probe.link" && echo "实测 link() 成功（同挂载）"; rm -rf "$w"'
+#      期望输出 "实测 link() 成功（同挂载）"。失败并报 "Invalid cross-device link" 说明源与目标
+#      落在了**不同挂载**上 —— 请回到上面的 volumes，恢复"单一共同父挂载"这一条。
+#      ⚠️ 探针只**读**源文件、只在目标根下建一个临时名并立刻删除；源目录零写入。
+# -----------------------------------------------------------------------------

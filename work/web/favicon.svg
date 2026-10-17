@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="媒体入库整理">
+  <rect x="4" y="4" width="56" height="56" rx="13" fill="#3b82f6"/>
+  <path d="M20 22h8v8h-8z" fill="#fff" opacity="0.95"/>
+  <path d="M36 22h8v8h-8z" fill="#fff" opacity="0.62"/>
+  <path d="M20 38h8v8h-8z" fill="#fff" opacity="0.62"/>
+  <path d="M36 38h8v8h-8z" fill="#fff" opacity="0.95"/>
+  <path d="M28 26h8v3h-8z" fill="#fff"/>
+  <path d="M28 42h8v3h-8z" fill="#fff"/>
+  <path d="M26 28h3v8h-3z" fill="#fff" opacity="0.8"/>
+  <path d="M42 28h3v8h-3z" fill="#fff" opacity="0.8"/>
+</svg>
