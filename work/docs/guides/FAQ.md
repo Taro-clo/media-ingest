@@ -34,6 +34,7 @@ curl -s -c cookies.txt -X POST http://127.0.0.1:18081/api/auth/login \
 | [37](#37-为什么有的文件没被改名而是停在原地) | 为什么有的文件没被改名，停在原地？ | 命中了「特典文件排除」，保留原名不移动 |
 | [39](#39-删除作品记录会删掉我的下载文件吗) | 删除作品记录会删掉下载文件吗？ | 不会，只删目标侧 |
 | [40](#40-两个媒体库用同一个下载目录会互相影响吗) | 两个库用同一个下载目录会互相影响吗？ | 不会，判据带库 id |
+| [43](#43-回调任务报-permission-denied下载文件的属主和容器运行身份对不上怎么办) | 回调任务报 `Permission denied` 怎么办？ | 下载文件的属主和容器运行身份对不上，对齐 `PUID/PGID` 或放权 |
 
 ---
 
@@ -239,7 +240,7 @@ stat -c 'inode=%i  links=%h  %n' "/vol1/1000/Download/qbittorrent/Bangumi/Show A
 
 两行 `inode` 相同、`links >= 2` ⇒ 它们就是同一份数据。
 
-> 属主/`PUID`/`PGID` 怎么设、权限报错怎么对号入座：[`DEPLOYMENT.md`](DEPLOYMENT.md) §10.4；报错排查见 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 场景 7。
+> 属主/`PUID`/`PGID` 怎么设、权限报错怎么对号入座：[`DEPLOYMENT.md`](DEPLOYMENT.md) §10.4；报错排查见 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 场景 7；**容器运行身份读不了下载文件**（回调任务报 `Permission denied`）见[第 43 问](#43-回调任务报-permission-denied下载文件的属主和容器运行身份对不上怎么办)。
 
 ## 37. 为什么有的文件没被改名，而是停在原地？
 
@@ -273,6 +274,55 @@ stat -c 'inode=%i  links=%h  %n' "/vol1/1000/Download/qbittorrent/Bangumi/Show A
 - 账本是**作品级**的、**不保证文件级完整性**：你在目标目录里的手动增删改一律保留，不会被"顺手修复"；「作品记录」里两本账的差集（`rename_missing` / `rename_only`）**只做提示**。
 
 > 作品记录怎么读、两本账对不上怎么办见 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 场景 27；账本语义另见 [`USER_GUIDE.md`](USER_GUIDE.md) §6.5。
+
+## 43. 回调任务报 Permission denied：下载文件的属主和容器运行身份对不上怎么办？
+
+**一句话答案**：硬链接要求应用进程对**源文件有读+写权限**（这是内核 `fs.protected_hardlinks` 的硬要求，不是本应用加的）；qBittorrent 写出的文件属主如果不是容器的运行身份（`PUID`），任务就会 `Permission denied` / `EPERM`。**修法是把两边身份对齐，或让这些目录对该身份可读**——不要盲目 `chmod -R 777`。
+
+**你会看到**（任务 `status=failed`，结果/任务日志里）：
+
+```
+Permission denied: '/vol1/1000/Download/qbittorrent/Bangumi/Show A/Season 1/xxx.mkv'
+```
+
+写目标失败则是 `Permission denied: '/vol1/1000/Library/Bangumi/...'`。
+
+**为什么会对不上**：牵涉三种身份，默认只保证其中一处一致：
+
+| 身份 | 典型值 | 怎么来的 |
+|---|---|---|
+| qBittorrent 写文件的用户 | `911:911`、`1000:1000`、`root` | qB 应用/容器的 `PUID/PGID`、`UMASK` |
+| 宿主编排用户 | 你 SSH 登录用的账号 | 手动建目录、`docker compose` 时 |
+| 本应用运行身份 | `PUID:PGID`，默认 `auto` = `MEDIA_ROOT` 根目录的属主 | `docker/entrypoint.sh` 启动时对齐 |
+
+- `auto` 只保证「与 `MEDIA_ROOT` 根目录属主一致」，**不保证与 qB 写出来的文件一致**；qB 用 `umask 077` 时文件是 `-rw-------`、目录 `drwx------`，别人连读都读不了。
+- **能读不能写也不行**：`fs.protected_hardlinks=1`（主流发行版默认）要求建链者对源文件**可读且可写**，否则 `EPERM`。
+- 跨系统情况不同：有些 NAS 有自定义权限层（例如 fnOS 的 `trimacl`），`ls -l` 的 mode 位不是最终判定，**以「应用身份实测」为准**。
+
+**怎么确认**（三步）：
+
+1. 【容器内】看应用身份：`docker exec media-ingest id` → 记下 `uid=` / `gid=`。
+2. 【宿主机】看源文件属主：`ls -ln "<下载目录>/Show A/Season 1/" | head`。
+3. 【容器内】用应用身份实测（**最准**，别只看权限位）：
+
+   ```bash
+   docker exec -u <PUID>:<PGID> media-ingest sh -c 'test -r "<源文件>" && echo 可读 || echo 读不了'
+   docker exec -u <PUID>:<PGID> media-ingest sh -c 'test -w "<源文件>" && echo 可写 || echo 不可写'
+   docker exec -u <PUID>:<PGID> media-ingest sh -c 'test -w "<目标目录>" && echo 可写 || echo 不可写'
+   ```
+
+   > ⚠️ `docker exec` 不带 `-u` 默认是 **root shell** —— root 能读**不代表**应用能读。
+
+**怎么修（按推荐顺序）**：
+
+1. **对齐 `PUID/PGID`（最稳）**：让 qBittorrent 与 media-ingest 用同一个 `PUID/PGID`（LinuxServer 系 qB 镜像本来就支持 `PUID/PGID`）。这样 qB 写出的文件属主就是应用身份，无须放宽任何权限。
+2. **应用侧固定身份**：compose 里 `PUID`/`PGID` 写成数字（或放进 `.env`），取值等于「qB 的 PUID」或「媒体目录属主」；改完 `docker compose up -d` 重建容器即可，不用重打镜像。entrypoint 会自动 `chown` 数据卷 `/data`，但**不会**动媒体目录（设计如此）。
+3. **给运行身份放权**（不改身份时）：把下载目录/目标目录的组或其他位放宽到可读可写，`chmod g+r` / `750`、`640` 起步，够用即可，不必 777；qB 容器可设 `UMASK=002`，让新文件是 `664`/`775`。
+4. **兜底：`permission_mode`**（库设置里开）——它会把**源文件 inode** `chmod 0777`；硬链接共享 inode，等于同时改了下载侧。能保证跨身份访问，但**代价是所有人都能写**，只在前三条都不方便时临时用。
+
+**千万别做**：`chmod -R 777 <媒体库>` 或 `chown -R` 媒体库整棵树 —— 媒体库与下载目录是**同一批 inode**（[第 27 问](#27-为什么媒体库里的文件权限和下载目录里的一样)），改媒体库等于改下载原文件，会连带影响 qBittorrent / Emby 侧。
+
+> 身份规则（`auto` 怎么判定、改完还要 `chown` 什么、常见报错对照）见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §10；具体报错排查见 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 场景 7；`permission_mode` 语义见 [`USER_GUIDE.md`](USER_GUIDE.md) §8.9。
 
 ---
 
