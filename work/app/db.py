@@ -178,6 +178,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "qbittorrent_url": "",
     "qbittorrent_username": "",
     "qbittorrent_password": "",
+    # qBittorrent 回调路径映射（一行一条 ``qB 容器路径 => 应用容器路径``，空 = 不换算）。
+    # 只在回调的 content_path 与媒体库 source_dir 不在同一路径空间时使用；
+    # 解析/校验见 `app.paths.parse_downloader_map`，接入点见 `app/routers/hooks.py`。
+    "downloader_path_map": "",
     "log_level": "INFO",
     "orphan_cleanup_enabled": "true",
     # 全局重命名后缀白名单。`[]` = 未设置 ⇒ 各库沿用"库覆盖 → 处理器默认"。

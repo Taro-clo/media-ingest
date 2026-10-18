@@ -39,7 +39,8 @@
 ## 2. 容器路径布局（**关键设计决策**）
 
 **只挂一条「单一共同父挂载（容器路径 = 宿主路径）」—— 源与目标都在这条挂载里**，因此 qBittorrent
-回调传来的 `%F` 零转换直接可用。
+回调传来的 `%F` 通常零转换直接可用（若 qBittorrent 容器里的路径不同，用设置项 `downloader_path_map`
+做前缀换算，见 §5 的「默认 settings」与 §8）。
 
 | 宿主路径 | 容器路径 | 模式 | 说明 |
 |---|---|---|---|
@@ -47,7 +48,9 @@
 | `<部署目录>/data` | `/data` | rw | SQLite `mlm.db`、`secret.key`、`config/`、`logs/`（每库一条重命名日志） |
 
 > **只有这两条 bind**。拆成 `/downloads:ro` + `/library` 两条独立 bind 会形成两个挂载 ⇒ 硬链接必然
-> `EXDEV`。qBittorrent 容器自己的路径映射与本应用无关，只要 `%F` 恰好等于宿主路径即可。
+> `EXDEV`。qBittorrent 容器自己的路径映射与本应用的挂载契约无关：`%F` 恰好等于宿主路径时零转换；
+> 不在同一路径空间时，用设置项 `downloader_path_map`（qBittorrent 容器路径 → 本应用容器路径）在回调
+> 入口做前缀换算 —— 它不改挂载、也不参与日志匹配，只作用于回调的 `content_path`。
 > **容器自包含**：硬链接由 `app/processors/hardlink.py`（冻结黄金值见 `tests/test_hardlink_native.py`）、
 > 重命名由 `app/processors/engine.py` 执行，运行期不载入任何外部模块或外部程序。
 
@@ -139,6 +142,7 @@ CREATE UNIQUE INDEX idx_link_records_library_folder ON link_records(library_id, 
 | `hook_token` | 随机 | `/api/hooks/*` 的 Bearer token |
 | `scan_enabled` / `scan_interval_seconds` | `true` / `900` | 目录扫描补偿（默认开启） |
 | `qbittorrent_url` / `_username` / `_password` | `""` | 仅状态展示与连通性测试（触发一律走回调） |
+| `downloader_path_map` | `""` | 回调路径映射（多行文本 `qB 容器路径 => 本应用容器路径`）；`""` = 不换算。**参与回调的功能判定**（`app/paths.py::parse_downloader_map/translate_downloader_path`），与只用于显示的 `HOST_PATH_MAP` 无关 |
 | `log_level` | `INFO` | 应用日志等级 |
 | `orphan_cleanup_enabled` | `true` | 全局孤儿清理总开关 |
 | `max_history` | `2000` | 任务历史保留条数 |
@@ -384,6 +388,11 @@ curl -s -X POST "http://<HOST_IP>:18081/api/hooks/qbittorrent?token=<HOOK_TOKEN>
   `examples/qbittorrent-autorun.md` 与 WebUI 设置页生成的命令都必须与本节逐字一致。
 - 匹配是 **AND 语义**（每个"已填写"条件都必须满足；三个列表全空 ⇒ 视为不匹配；命中多个库 → 全部入队；
   未命中的库在 `ignored_details[]` 里给中文原因），见 `API.md` §6。
+- **路径空间换算**：`%F` 是 qBittorrent 容器视角的路径。两边容器路径不一致时，设置项
+  `downloader_path_map` 会在回调入口把 `content_path` 的最长匹配前缀换成本应用容器路径
+  （`app/paths.py::translate_downloader_path`，换算后的路径必须真实存在，否则不换算并进 `warnings`），
+  之后才做匹配与一级文件夹切分。空映射 = 恒等（旧行为）。它**不影响** `source_dir` / `target_dir` /
+  `match_path_prefixes` 的填写口径 —— 这三者永远是本应用容器内的路径。
 
 ---
 

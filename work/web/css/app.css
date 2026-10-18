@@ -818,6 +818,42 @@ details.disclosure li { margin-bottom: 4px; }
 .field-invalid .input,
 .field-invalid .chip-text { border-color: var(--danger); }
 
+/* 设置页 · qBittorrent 回调路径映射：每行「容器内路径 => 绝对路径」 */
+.pathmap { display: flex; flex-direction: column; gap: 8px; }
+.pathmap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.pathmap-title { font-size: var(--fs-13); font-weight: 500; color: var(--text); }
+.pathmap-rows { display: flex; flex-direction: column; gap: 10px; }
+.pathmap-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.pathmap-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pathmap-cell .input { font-size: var(--fs-12); }
+.pathmap-cell .field-hint { font-family: var(--font-mono); word-break: break-all; }
+.pathmap-arrow { align-self: center; padding-top: 20px; color: var(--text-3); }
+.pathmap-remove { align-self: center; padding-top: 20px; }
+.pathmap-remove:hover { color: var(--danger); background: var(--surface-3); }
+.pathmap.field-invalid .pathmap-row .input { border-color: var(--danger); }
+
+@media (max-width: 767px) {
+  .pathmap-row { grid-template-columns: minmax(0, 1fr); }
+  .pathmap-arrow { display: none; }
+  .pathmap-remove { align-self: flex-end; padding-top: 0; }
+}
+
 .input {
   width: 100%;
   padding: 7px 10px;

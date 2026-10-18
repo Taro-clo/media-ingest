@@ -1065,19 +1065,32 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
   "qbittorrent_url": "",
   "qbittorrent_username": "",
   "qbittorrent_password": "",
+  "downloader_path_map": "",
   "hook_token": "3f9c1d2e..."
 }
 ```
 
 键的顺序是**固定**的（就是上面这个顺序，也是设置页表单的顺序），前端不用自己排。
 
-> 📌 这份响应就是**设置表里的可编辑键**（`app/routers/settings.py` 的 `settings_view()` 显式列出的那 **13 个**）。`config_dir` **不是设置项** —— 它只出现在 `GET /api/system/info`（§5.6），不要在 `PUT /api/settings` 里写它。
+> 📌 这份响应就是**设置表里的可编辑键**（`app/routers/settings.py` 的 `settings_view()` 显式列出的那 **14 个**）。`config_dir` **不是设置项** —— 它只出现在 `GET /api/system/info`（§5.6），不要在 `PUT /api/settings` 里写它。
 > 📌 反过来也有一个"表里有、这里没有"的键：`todo_kinds`（见下）**不会**出现在这份响应里（它虽登记在 `STR_KEYS`、可以用 `PUT` 写，但 `settings_view()` 的显式列表里没有它，而"表外键回传"回路又只放行**非** `KNOWN_KEYS` 的键）。当前值请查 `GET /api/todos/summary` 的 `disabled_kinds`（§5.9）。
 
 | 键 | 返回什么 | 为什么 |
 |---|---|---|
 | `hook_token` | **明文** | 设置页要一键复制带 token 的 curl 回调命令，不给明文这个功能没法用。请勿贴到公开页面或截图里 |
 | `qbittorrent_password` | 已设置 → `"***"`；未设置 → `""` | 不回传明文；`"***"` 在 `PUT` 里表示「保持原值」。两者语义不同，别当成同一个 |
+
+**`downloader_path_map`（回调路径映射）**：**多行文本**，一行一条 `qBittorrent 容器里的路径 => 本应用容器里的绝对路径`（分隔符是 `=>`，两侧允许空格；`#` 开头是注释、空行忽略）。默认 `""` = **不换算**，行为与旧版本完全一致。只在「qBittorrent 容器的路径 ≠ 本应用容器的路径」时才需要填：
+
+```
+/downloads => /vol1/1000/Download/qbittorrent
+```
+
+- 它**参与功能判定**（回调时先把 `content_path` 左侧前缀换成右侧，再做「匹配路径前缀」比较与一级文件夹切分），和只影响显示的 `HOST_PATH_MAP`（§5.6）**是两件不同的事**，别混用。
+- 多个前缀都能命中时用**最长**的那条（按路径段比较，`/downloads` 不会吃掉 `/downloads2`）。
+- 换算后的路径**必须在容器内真实存在**，否则本次**不换算**（按原始 `content_path` 走，通常是全量执行）并在响应 `warnings` 里说明；这样映射写错时行为是「退化为全量」而不是「切到错误目录」。
+- 库的 `source_dir` / `target_dir` / `match_path_prefixes` **仍然一律填应用容器内的绝对路径**；映射只负责把回调里的路径翻译过来。
+- 格式错误（缺 `=>`、某一侧为空、某一侧不是绝对路径、左侧重复、左侧写成 `/`）在 `PUT` 时整串被拒，`400` 的 `detail` 会点名第几行：`回调路径映射格式错误：第 2 行…`。
 
 **`rename_extensions`**：**允许重命名的文件后缀白名单**，对**所有**媒体库生效。优先级**低于**库级覆盖、**高于**处理器里的 `extensions`（三层：`rule_override.extensions` → 本设置 → 处理器清单）。默认 `[]` = 未设置，此时按各处理器的清单走。详见 [PROCESSORS.md](PROCESSORS.md) 的「库级规则覆盖」一节。
 
@@ -1121,6 +1134,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | 后缀数组（`rename_extensions`） | 字符串数组，每项**以点开头**（如 `".mkv"`）；大小写不敏感（`".MKV"` 归一化成 `".mkv"`）且**保序去重**；**空数组合法**（= 未设置，行为回落到处理器清单） |
 | 正则数组（`extras_patterns`） | 字符串数组，且**每一条都必须能被 `re.compile`**；有一条编不过就整体 `400`，中文点名第几条 + 模式原文（如 `第 2 条正则 'NCOP(' 无法编译：missing ), unterminated subpattern at position 4。…`）。**空数组合法 = 关闭 L3**；数组里出现空行 / 空字符串 ⇒ `400`（要关就写 `[]`，别写 `[""]`）；条目**保序去重** |
 | 字符串（`log_level` / `qbittorrent_*` / `hook_token` / `todo_kinds`） | 必须是字符串；`log_level` 只能是 `DEBUG` / `INFO` / `WARNING` / `ERROR`；`todo_kinds` 的**非法值不会 400**（服务端读的时候忽略非法项、必要时回落"全部启用"，见 §5.2）。⚠️ `config_dir` **不是设置项**，传它只会撞「表外的键名」 |
+| 回调路径映射（`downloader_path_map`） | 必须是**多行文本字符串**（不是数组）；按行解析 `左侧 => 右侧`，空行与 `#` 注释行忽略，**每条的两侧都必须是绝对路径**（左侧可以带 Windows 盘符，仅为本机开发测试）；左侧重复、左侧是 `/`、缺 `=>`、某一侧为空都整体 `400`，`detail` 点名第几行。**空串合法** = 不换算 |
 | 表外的键名 | 400（防止把 `scan_enabeld` 这种拼错的键写进去，然后永远读不出效果） |
 
 整数区间：`scan_interval_seconds` **30–86400**（小于 30 秒没意义，一次全量扫描本身就可能更久）、`max_history` **10–100000**、`max_task_log_lines` **100–1000000**（太小会把正常的逐文件日志截掉）、`config_sync_interval_seconds` **0–86400**（**`0` = 关闭自动导入**，只保留手工 `POST /api/config/reload`）。
@@ -1147,7 +1161,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 `400`（未知键）：
 
 ```json
-{"detail": "未知的设置项：scan_enabeld。可用设置项：config_sync_interval_seconds、extras_patterns、hook_token、log_level、max_history、max_task_log_lines、orphan_cleanup_enabled、qbittorrent_password、qbittorrent_url、qbittorrent_username、rename_extensions、scan_enabled、scan_interval_seconds、todo_kinds。"}
+{"detail": "未知的设置项：scan_enabeld。可用设置项：config_sync_interval_seconds、downloader_path_map、extras_patterns、hook_token、log_level、max_history、max_task_log_lines、orphan_cleanup_enabled、qbittorrent_password、qbittorrent_url、qbittorrent_username、rename_extensions、scan_enabled、scan_interval_seconds、todo_kinds。"}
 ```
 
 > `log_level` 改完**立刻生效**（当场调整根 logger 与 `app` logger 的等级），不需要重启容器。
@@ -1161,6 +1175,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `scan_interval_seconds` | `900` | 扫描周期（秒），区间 30–86400 |
 | `qbittorrent_url` | `""` | 例如 `http://$HOST_IP:18080` |
 | `qbittorrent_username` / `qbittorrent_password` | `""` | 可选，用于 API 补偿与「测试连接」 |
+| `downloader_path_map` | `""` | qBittorrent 容器路径 → 本应用容器路径的回调路径映射（多行文本，一行一条 `左侧 => 右侧`）；`""` = 不换算。见 §5.2、§6.1 |
 | `log_level` | `INFO` | 应用日志等级 |
 | `orphan_cleanup_enabled` | `true` | 全局孤儿清理总开关（**全局为 false 时，所有库都不会清理孤儿**） |
 | `max_history` | `2000` | 任务历史保留条数，超出自动裁剪 |
@@ -1352,6 +1367,7 @@ docker exec media-ingest python3 -c "import json,urllib.request;print(json.dumps
 > 📌 **`rename_logs` 就是设置页「重命名日志」表的数据来源** —— 前端**不要直接读日志文件**（那是容器内路径，浏览器访问不到，而且并发读会与任务写入打架）。「每个媒体库一份日志、所有重命名日志在同一目录」的可观测性验收就看这个字段。
 
 > 📌 **`HOST_PATH_MAP` 现在是纯展示的，而且默认留空（`HOST_PATH_MAP={}`）**：容器路径 = 宿主路径（恒等），不需要换算；只有「容器路径 ≠ 宿主路径」的非恒等部署才需要自己填。所以它**只影响网页上显示的路径好不好看**，填错、漏填都**不影响任务行为**。键建议写成带前导 `/` 的绝对容器路径，否则显示会不伦不类。
+> 📌 **别把它和 `downloader_path_map` 搞混**：`HOST_PATH_MAP` 是环境变量、容器路径 → **宿主**路径、**只用于显示**；`downloader_path_map` 是设置项（§5.2）、**qBittorrent 容器**路径 → **本应用容器**路径、**参与回调的路径换算**。两者方向、用途都不同。
 
 > 日志相关的三个概念分工：**硬链接日志**（`/data/logs/hard_links.log`，纯文本）、**每个媒体库一条重命名日志**（`/data/logs/<log_file>`，JSON 缓存形态）、**任务日志**（数据库 + 内存缓冲，任务详情页轮询）。前两类都是幂等判定的依据，**别手工删**。`hard_links.log` **只写"记账行"**（体积登记与孤儿目录清理两类），uvicorn 访问日志 / 任务执行日志 / 异常回溯等**不会混入**这个文件（该 handler 挂了白名单过滤器，见 [`docs/contracts/ARCHITECTURE.md`](ARCHITECTURE.md) 的「`app/script_adapter.py`」一节）；**只过滤、不清理**，历史行一个字节都不删。权威的日志格式与写入纪律见 [`docs/contracts/BASELINE.md`](BASELINE.md) 的「硬链接契约」与「硬链接日志的写入纪律」两节。
 
@@ -1873,7 +1889,7 @@ log_format: json_cache
 | `hash` | `%I` | 种子哈希 |
 | `category` | `%L` | 分类 |
 | `tags` | `%G` | 标签（逗号分隔） |
-| `content_path` | `%F` | 内容路径（**与容器内 `/vol1/1000/Download/qbittorrent/...` 同路径，零转换**） |
+| `content_path` | `%F` | 内容路径（qBittorrent **容器视角**的绝对路径，如 `/downloads/Bangumi/Show A`）。配置了 `downloader_path_map`（§5.2）时先按映射换算成本应用容器内的路径再使用；没配映射就按原样使用（单挂载形态下两边路径一致，不需要换算） |
 | `save_path` | `%D` | 保存路径 |
 | `root_path` | `%R` | 根路径 |
 | `kind` | **无**（`%K` 不是它） | **可选的高级覆盖项**，手工传才生效（取值见下）；标准命令不传。注意 qBittorrent 的 `%K` 是 **Torrent ID**，不要拿它当任务类型 |
@@ -1902,6 +1918,13 @@ log_format: json_cache
 | `ignored_details` | **每个未命中的库 + 具体中文原因**（排查「为什么没触发」看这里，比 `ignored` 详细得多） |
 | `warnings` | 非致命提示。例如 `content_path` 切不出一级文件夹（单文件种子）时会说明「本次按全量执行」；当前没有任何已启用库时也会提示 |
 | `torrent` | 回显 `name` / `hash`，便于和 qBittorrent 侧对账 |
+| `translation` | **只有配置了 `downloader_path_map` 时才出现**：`{applied, rule, raw, app, warning}` —— 是否真的换算成功、命中的是哪条规则（`"左侧 => 右侧"`）、原始 `content_path`、换算后的路径；`applied=false` 时 `warning` 说明原因（例如换算后的目标不存在） |
+
+- **`content_path` 的路径空间换算（可选，`downloader_path_map`）**：回调进来后**先**用设置项 `downloader_path_map`（§5.2）把 `content_path` 的最长匹配前缀替换成本应用容器内的前缀，**再做**下面的库匹配与一级文件夹切分。换算后的路径**必须真实存在**（否则不换算、本次退化为全量并在 `warnings` 里说明）；`content_path` 为空或没有匹配的前缀时原样使用。库的 `source_dir` / `target_dir` / `match_path_prefixes` **永远填本应用容器内的路径**，与映射无关。配置了映射并生效时，响应多一个 `translation` 块：
+
+```json
+"translation": {"applied": true, "rule": "/downloads => /vol1/1000/Download/qbittorrent", "raw": "/downloads/Bangumi/Show A", "app": "/vol1/1000/Download/qbittorrent/Bangumi/Show A", "warning": null}
+```
 
 - **匹配逻辑**：遍历**已启用**的库（按 id 升序）逐个判断。**所有「已填写」的条件都必须成立（AND）**：
   1. 填了 `match_categories` → 回调的 `category` 必须**等于**列表里的一项；

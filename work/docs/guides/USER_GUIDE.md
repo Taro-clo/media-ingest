@@ -293,6 +293,8 @@ ls -ld /vol1/1000/Library
 
 **三条铁律**：① **三项全空 = 不匹配**（刻意设计，防止"什么都没配"的库把整个下载目录抓走）；② 命中多个库 → **全部入队**（依次执行）；③ `启用 = 关` 的库**完全不参与匹配**（但可手动跑）。
 
+> 📌 **路径条件永远按「本应用容器内」的路径判断**。如果 qBittorrent 容器里的下载路径不一样（例如它是 `/downloads`，本应用是 `/vol1/1000/Download/qbittorrent`），先在设置页 §8.8 的 qBittorrent 卡片里配一条「回调路径映射」，回调会先换算再匹配；没配映射时 `/downloads/...` 在应用里不存在，会表现为"分类对了但路径对不上 / 退化为全量"。
+
 > ⚠️ 这三项条件**只用于 qBittorrent 回调**（WebUI 建库页在「匹配条件」标题下也有同样说明）：「手动执行」与「目录扫描」**不看**这些条件，会处理源目录下符合规则的全部内容。
 > 记住方向：**条件填得越多 = 命中越严**。"分类是 ban 但下到了 `Movie` 目录"的种子**不会**命中番剧库 —— 这在你想把两个番剧目录分开时有用，但也常常就是"为什么没触发"的答案。
 > **回调返回里的 `ignored_details` 是排查神器**：逐个列出**没命中**的库并给中文原因。`matched: 0` 时先看它；逐条对照见 §9。
@@ -675,6 +677,7 @@ curl -s -b cookies.txt -X POST http://127.0.0.1:18081/api/libraries/1/run \
 | **完整回调命令** | 已经把你当前的 token 和地址填好的一整行命令，点「复制」直接拿去粘进 qBittorrent。**最推荐的用法**（不用自己拼） |
 
 > 📌 **token 只在设置页拿，不在 `.env` 里**：`hook_token` **不是环境变量**，`.env` 没有这个键、填了也不会被读取。它由应用**首次启动时随机生成**，存在 `/data` 的数据里；设置页是它**唯一的查看与轮换入口**（`GET /api/settings` 也能读到明文）。
+> 📌 **qBittorrent 容器的路径和本应用容器不一样？** 例如 qBittorrent 把下载目录挂成 `/downloads`，而本应用里是 `/vol1/1000/Download/qbittorrent` —— 回调带的 `%F` 就会是 `/downloads/...`。这时要在设置页下面 **§8.8 的 qBittorrent 卡片**里加一条「回调路径映射」，否则回调会退化成整库全量（见 §9 第 4 步）。
 
 用法见 §9。
 
@@ -766,10 +769,27 @@ curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
 |---|---|
 | `qbittorrent_url` | 如 `http://<HOST_IP>:18080`（qBittorrent 的 **WebUI** 端口，不是本应用的 18081） |
 | `qbittorrent_username` / `qbittorrent_password` | qBittorrent 的登录凭据 |
+| **回调路径映射** | 可选，**参与回调的功能判定**（不是补偿项）：把 qBittorrent 容器里的路径换成本应用容器里的路径。一行一条，两个输入框分别是「容器内路径（qBittorrent 容器里的路径）」和「绝对路径（本应用容器里的绝对路径）」，可以点「添加一条映射」加多条 |
 
 **这些是可选补偿项**。应用**不靠它工作**：自动触发靠回调，补偿靠目录扫描。填了可以做更强的 API 补偿（向 qBittorrent 查询种子列表）。不填完全不影响主流程。
 
 > 💡 密码框显示 `***` 表示"已设置"。保持 `***` 不变就是不改它；要改就输新密码。
+
+**「回调路径映射」什么时候要填**：只有「qBittorrent 容器的路径 ≠ 本应用容器的路径」时才需要。两边一致（单挂载形态的常见情况）就**留空**。示例：
+
+| 容器内路径（qBittorrent 容器里的路径） | 绝对路径（本应用容器里的绝对路径） |
+|---|---|
+| `/downloads` | `/vol1/1000/Download/qbittorrent` |
+
+意思是：回调带来的 `/downloads/Bangumi/Show A` 会被当成 `/vol1/1000/Download/qbittorrent/Bangumi/Show A` 来用。规则：
+
+- 一行一条，保存即生效（不用重启）；留空 = 不换算，行为与以前完全一样。
+- 左侧是 **qBittorrent 容器里**的路径前缀，右侧是**本应用容器里**的路径前缀；库的源目录/目标目录/匹配路径前缀**仍然填本应用容器里的路径**，不要填 qB 的。
+- 多个前缀都能命中时用**最长**的那条；换算后的路径**必须真实存在**，否则这一次不换算（通常退化为全量）并在回调响应的 `warnings` 里说明 —— 所以映射写错不会把任务指到错误目录。
+- qBittorrent 改了下载目录的挂载方式时，回来改这一行即可。
+- 填错格式（只填了一边、不是 `/` 开头的绝对路径）保存会报错，提示第几条有问题。
+
+> 📌 它和「系统信息」里的「路径映射表」（`HOST_PATH_MAP`）**不是一个东西**：那个只影响页面上显示的路径好不好看，填错不影响功能；这个**真的参与回调路径换算**。
 
 ### 8.9 权限模式（在媒体库的编辑页，不是设置页）
 
@@ -786,7 +806,7 @@ curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
 | 区块 | 看什么 |
 |---|---|
 | **健康检查** | 四项 `checks` 全为 ✅ 才算健康（`db` / `data_dir` / `processors` / `config`）；任一项 false 的处置见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §4.4.1 |
-| **路径映射表** | 容器路径 ↔ 宿主路径的对应关系（来自 `HOST_PATH_MAP`）。**它只用于显示**：填错、漏填都**不影响功能**（见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §4.2） |
+| **路径映射表** | 容器路径 ↔ 宿主路径的对应关系（来自 `HOST_PATH_MAP`）。**它只用于显示**：填错、漏填都**不影响功能**（见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §4.2）。⚠️ 别和设置页 qBittorrent 卡片里的「回调路径映射」混淆：那个是**功能项**（回调路径换算，§8.8） |
 | **挂载判定** | 源与目标是否在**同一个挂载**里。预检的 `same_filesystem` 是**三态**：`true`（实证 link 探针证过；若只是挂载 ID 预筛通过会在 `warnings[]` 注明「未实证」）/ `false`（**已证实**建不出 ⇒ `ok=false`、原因进 `errors[]`）/ `null`（判不了，例如源树下找不到可试链的普通文件）。⚠️ **`st_dev` 两个数字相同 ≠ 能建硬链接** —— `linkat(2)` 比较的是挂载身份，`st_dev` 相同但分属两条 bind 时 `link()` 依然 `EXDEV`（"假绿"的根因） |
 
 > 硬链接与重命名由 `app/processors/hardlink.py` 与规则引擎 `app/processors/engine.py` 执行，行为由项目自己的回归测试（冻结的黄金值）守护。
@@ -804,6 +824,8 @@ curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
 3. **三条不能改的**：命令**必须是一行**；7 个占位符 `%N` `%I` `%L` `%G` `%F` `%D` `%R` **照抄**；**不要**加 `kind=%K`（`%K` 是 Torrent ID，不是任务类型，任务类型由媒体库的处理器推导）；
 4. **验证**：在【宿主机】手动打一次回调，看返回是不是 `"matched":1`（命令形状见 [`../examples/qbittorrent-autorun.md`](../../examples/qbittorrent-autorun.md)）；`matched:0` 说明通了但没命中任何库 —— 看 `ignored_details[].reason`，对照本节末指针里那张「`matched: 0` 原因对照表」与 §4.4；
 5. **漏了怎么办**：扫描补偿默认已开启（`scan_enabled=true`，§8.4），每 15 分钟补一次；关掉过就回设置页重新打开。
+
+> 📌 **qBittorrent 容器里的下载路径和本应用不一样时**：先到设置页 qBittorrent 卡片（§8.8）加一条「回调路径映射」（例如 `/downloads` → `/vol1/1000/Download/qbittorrent`），再做第 4 步验证。`%F` 是**qBittorrent 容器视角**的路径，映射就是给这条路径做前缀替换；不配的话回调通常仍能按分类命中，但切不出一级文件夹、每次退化为整库全量。
 
 > **完整命令（7 个 `--data-urlencode` 逐字版）+ qBittorrent 各版本菜单路径 + `matched: 0` 的逐条原因对照表**：
 > 见 [`../examples/qbittorrent-autorun.md`](../../examples/qbittorrent-autorun.md)（**唯一权威完整副本**）与 [`DEPLOYMENT.md`](DEPLOYMENT.md) §5。

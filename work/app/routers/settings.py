@@ -20,7 +20,7 @@ import secrets
 
 from fastapi import APIRouter, Depends
 
-from .. import security
+from .. import paths, security
 from ..api_models import QbTestRequest, SettingsPatch
 from ..db import all_settings, get_setting, set_setting
 from ..qbittorrent import latency_of
@@ -45,6 +45,10 @@ SUFFIX_KEYS = frozenset({"rename_extensions"})
 #: **允许为空数组**（= 关闭 L3）。与 SUFFIX_KEYS 的区别：这里**不拆分、不做形状白名单**，
 #: 只要求逐条能 ``re.compile`` —— 正则里逗号、空格、点号都有意义，任何"聪明的拆分"都会毁掉它。
 REGEX_LIST_KEYS = frozenset({"extras_patterns"})
+#: 回调路径映射（多行文本，一行 ``qB 路径 => 应用路径``）。空串 = 不换算。
+#: 这里只做**格式**校验（``paths.parse_downloader_map``），不校验路径是否真实存在：
+#: 目标不存在时回调侧会自行退回「不换算 + 警告」，那属于部署差异而不是配置语法错误。
+PATH_MAP_KEYS = frozenset({"downloader_path_map"})
 #: 纯字符串设置键。
 STR_KEYS = frozenset(
     {
@@ -60,7 +64,7 @@ STR_KEYS = frozenset(
         "todo_kinds",
     }
 )
-KNOWN_KEYS = BOOL_KEYS | INT_KEYS | SUFFIX_KEYS | REGEX_LIST_KEYS | STR_KEYS
+KNOWN_KEYS = BOOL_KEYS | INT_KEYS | SUFFIX_KEYS | REGEX_LIST_KEYS | PATH_MAP_KEYS | STR_KEYS
 
 #: 服务端自己记账用的键：**不出现在** ``GET /api/settings`` 里（它们不是用户设置，
 #: 前端如果把它们渲染成表单字段，用户一保存就会被"未知的设置项"挡回来）。
@@ -106,6 +110,7 @@ OUTPUT_ORDER = (
     "qbittorrent_url",
     "qbittorrent_username",
     "qbittorrent_password",
+    "downloader_path_map",
     "hook_token",
 )
 
@@ -147,6 +152,8 @@ def settings_view() -> dict:
         "qbittorrent_url": stored.get("qbittorrent_url") or "",
         "qbittorrent_username": stored.get("qbittorrent_username") or "",
         "qbittorrent_password": _mask_password(stored.get("qbittorrent_password")),
+        # 回调路径映射：原样返回多行文本（前端按行渲染成两个输入框；空 = 不换算）。
+        "downloader_path_map": stored.get("downloader_path_map") or "",
         # 契约要求返回明文：设置页要一键复制带 token 的 curl 回调命令。
         "hook_token": stored.get("hook_token") or "",
     }
@@ -231,6 +238,16 @@ def _coerce(key: str, value) -> str:
             if pattern not in patterns:
                 patterns.append(pattern)
         return json.dumps(patterns, ensure_ascii=False)
+    if key in PATH_MAP_KEYS:
+        # 回调路径映射：存多行文本（前端每行两个输入框）。只做格式校验，
+        # 非法时把 ``parse_downloader_map`` 的带行号中文错误原样返回给前端。
+        if not isinstance(value, str):
+            raise bad_request(f"设置项 {key} 需要字符串（多行文本），收到 {type(value).__name__}。")
+        try:
+            paths.parse_downloader_map(value)
+        except ValueError as exc:
+            raise bad_request(f"回调路径映射格式错误：{exc}") from exc
+        return value
     # 字符串型
     if not isinstance(value, str):
         raise bad_request(f"设置项 {key} 需要字符串，收到 {type(value).__name__}。")

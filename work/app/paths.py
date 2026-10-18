@@ -165,6 +165,119 @@ def is_inside(child: str, parent: str) -> bool:
     return True
 
 
+# ------------------------------------------------------- 回调路径映射（downloader_path_map）
+#
+# 与 ``host_path_map``（容器↔宿主、只用于展示）是**两回事**：
+# qBittorrent 容器与媒体库容器可以把同一个宿主目录挂到**不同**的容器路径
+# （qB 里是 ``/downloads``，本应用里是 ``/vol1/1000/Download/qbittorrent``）。
+# 回调里的 ``%F`` 是 qB 视角的路径，不换算就切不出一级文件夹 ⇒ 每次退化成整库全量。
+# 这里做的是「下载器容器路径 -> 本应用容器路径」的换算，**只影响作用域选择**，
+# 不参与任何文件操作之外的事情（换算结果仍然要过 ``is_inside`` / 硬链接前置校验）。
+
+def _looks_absolute(path: str) -> bool:
+    """映射两侧是否「看起来绝对」：``/xxx`` 或 Windows 盘符 ``C:/xxx``。
+
+    Windows 盘符这一支只为**本机开发 + 测试**：真实部署在 Linux 容器里，两侧都是
+    ``/`` 开头的容器路径。允许盘符不会放宽生产语义——右侧仍必须落在应用容器内。
+    """
+    text = str(path or "").strip().replace("\\", "/")
+    if text.startswith("/"):
+        return True
+    return len(text) >= 2 and text[1] == ":" and text[0].isalpha()
+
+
+def parse_downloader_map(text: str | None) -> list[tuple[str, str]]:
+    """把设置项文本解析成 ``[(qB 路径, 应用路径), ...]``。
+
+    文本格式（设置页按行编辑，一行一条；``#`` 开头为注释，空行忽略）::
+
+        /downloads => /vol1/1000/Download/qbittorrent
+
+    **抛 ``ValueError``** 时消息本身就是给用户看的中文（带行号），
+    ``PUT /api/settings`` 会原样转成 400，回调侧则降级为「不换算」并记 warning。
+    重复的左侧前缀直接拒绝：否则「最长前缀优先」会出现两条等长规则、结果取决于顺序。
+    """
+    mapping: list[tuple[str, str]] = []
+    seen: dict[str, int] = {}
+    for lineno, raw_line in enumerate(str(text or "").splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=>" not in line:
+            raise ValueError(
+                f"第 {lineno} 行：缺少「=>」分隔符，格式应为 "
+                f"/downloads => /vol1/1000/Download/qbittorrent"
+            )
+        left, right = (part.strip() for part in line.split("=>", 1))
+        if not left or not right:
+            raise ValueError(f"第 {lineno} 行：「=>」两侧都不能为空。")
+        if not _looks_absolute(left):
+            raise ValueError(f"第 {lineno} 行：左侧必须是绝对路径（以 / 开头），收到 {left!r}。")
+        if not _looks_absolute(right):
+            raise ValueError(f"第 {lineno} 行：右侧必须是绝对路径（以 / 开头），收到 {right!r}。")
+        left = normalize(left)
+        right = normalize(right)
+        if left == "/":
+            raise ValueError(
+                f"第 {lineno} 行：左侧不能是 /（那会把所有路径都换算到同一个根，"
+                f"请写具体前缀，例如 /downloads）。"
+            )
+        if left in seen:
+            raise ValueError(
+                f"第 {lineno} 行：源前缀 {left} 与第 {seen[left]} 行重复，请合并成一条。"
+            )
+        seen[left] = lineno
+        mapping.append((left, right))
+    return mapping
+
+
+def translate_downloader_path(
+    raw: str,
+    mapping: list[tuple[str, str]],
+    *,
+    exists=None,
+) -> tuple[str, str | None, str | None]:
+    """把 qB 回调里的路径换成应用容器路径。
+
+    返回 ``(应用空间路径, 命中规则说明, 警告)``：
+
+    - 未配置映射 / 没有前缀命中 ⇒ ``(原路径归一化, None, None)``，行为与改动前一致；
+    - 命中且换算后的路径**真实存在** ⇒ ``(换算结果, "/downloads => /vol1/…", None)``；
+    - 命中但换算后的路径不存在 ⇒ 不换算，返回 ``(原路径归一化, None, 警告)``。
+
+    「存在性」这一关是有意的安全网：qB 里的 ``/downloads/Show`` 换算后如果指向一个
+    碰巧同名的无关目录，按它切作用域会去处理错误的文件夹；宁可在本次退回全量并提示
+    用户检查映射。``exists`` 参数供单元测试注入桩函数（开发机是 Windows，
+    伪造的容器路径无法真实存在）。
+
+    最长前缀优先：同时配了 ``/downloads`` 与 ``/downloads/Bangumi`` 时后者生效，
+    且 ``is_inside`` 按路径段比较，``/downloads2`` 不会被 ``/downloads`` 误吃。
+    """
+    normalized = normalize(raw) if raw else ""
+    if not normalized or not mapping:
+        return normalized, None, None
+
+    best: tuple[int, str, str] | None = None
+    for source_root, app_root in mapping:
+        if is_inside(normalized, source_root):
+            if best is None or len(source_root) > best[0]:
+                best = (len(source_root), source_root, app_root)
+    if best is None:
+        return normalized, None, None
+
+    _, source_root, app_root = best
+    relative = normalized[len(source_root):].lstrip("/")
+    translated = normalize(app_root.rstrip("/") + ("/" + relative if relative else ""))
+    rule = f"{source_root} => {app_root}"
+    probe = exists or os.path.exists
+    if not probe(translated):
+        return normalized, None, (
+            f"回调路径映射 {rule} 命中，但换算后的路径 {translated} 在应用容器里不存在，"
+            f"本次不换算（请检查映射右侧是否是应用容器内可见的路径）。"
+        )
+    return translated, rule, None
+
+
 def existing_ancestor(path: str) -> str:
     """取 ``path`` 自身或最深的**已存在**祖先；用于 ``st_dev`` 比较与可写探测。
 

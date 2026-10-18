@@ -2,7 +2,7 @@
 // 布局（区块顺序）：
 //   1) 页头：标题 + 副标题 + 未保存提示 + 刷新 + 保存设置
 //   2) 配置文件同步（config_sync.js 的 mountConfigStatus：GET /api/config + reload/export）
-//   3) qBittorrent 接入（url / username / password + 测试连接 + 结果行）
+//   3) qBittorrent 接入（url / username / password + 测试连接 + 结果行 + 回调路径映射）
 //   4) 目录扫描（scan_enabled / scan_interval_seconds）
 //   5) 日志与历史（log_level / max_history / max_task_log_lines / orphan_cleanup_enabled）
 //   5b) 重命名后缀白名单（rename_extensions，多行文本 ⇄ 数组；对所有媒体库生效）
@@ -81,6 +81,82 @@ function arrayToText(list) {
   return Array.isArray(list) ? list.join('\n') : '';
 }
 
+// ---------------------------------------------------------------- 回调路径映射
+// 后端 `downloader_path_map` 存的是多行文本（一行一条 `左侧 => 右侧`，`#` 注释行、
+// 空行由后端忽略）。WebUI 用「每行两个输入框」的编辑器呈现，因此这里做双向转换。
+
+/** 文本 → [{from, to}]。缺 `=>` 的行按"只填了左侧"处理，交给 validate 提示。 */
+function parsePathMap(text) {
+  const out = [];
+  String(text || '').split('\n').forEach(function (line) {
+    const s = line.trim();
+    if (!s || s.charAt(0) === '#') return;
+    const idx = s.indexOf('=>');
+    if (idx < 0) {
+      out.push({ from: s, to: '' });
+      return;
+    }
+    out.push({ from: s.slice(0, idx).trim(), to: s.slice(idx + 2).trim() });
+  });
+  return out;
+}
+
+function pathMapRowHtml(pair, index) {
+  const from = (pair && pair.from) || '';
+  const to = (pair && pair.to) || '';
+  return '<div class="pathmap-row" data-pathmap-row>' +
+    '<div class="pathmap-cell">' +
+      '<label class="field-label" for="set-qb-pathmap-from-' + index + '">' + esc(t('set.qb.pathmap.from.label')) + '</label>' +
+      '<input class="input mono" type="text" id="set-qb-pathmap-from-' + index + '" data-pathmap-from value="' + esc(from) + '"' +
+        ' placeholder="' + esc(t('set.qb.pathmap.from.ph')) + '" autocomplete="off" spellcheck="false">' +
+      '<p class="field-hint">' + esc(t('set.qb.pathmap.from.example')) + '</p>' +
+    '</div>' +
+    '<div class="pathmap-arrow" aria-hidden="true">→</div>' +
+    '<div class="pathmap-cell">' +
+      '<label class="field-label" for="set-qb-pathmap-to-' + index + '">' + esc(t('set.qb.pathmap.to.label')) + '</label>' +
+      '<input class="input mono" type="text" id="set-qb-pathmap-to-' + index + '" data-pathmap-to value="' + esc(to) + '"' +
+        ' placeholder="' + esc(t('set.qb.pathmap.to.ph')) + '" autocomplete="off" spellcheck="false">' +
+      '<p class="field-hint">' + esc(t('set.qb.pathmap.to.example')) + '</p>' +
+    '</div>' +
+    '<button type="button" class="btn btn-ghost btn-sm pathmap-remove" data-pathmap-remove' +
+      ' aria-label="' + esc(t('set.qb.pathmap.remove')) + '" title="' + esc(t('set.qb.pathmap.remove')) + '">' +
+      icon('trash', 14) + '</button>' +
+  '</div>';
+}
+
+/** 至少渲染一行空行：用户一眼能看到两个输入框的标签和示例。 */
+function pathMapRowsHtml(entries) {
+  const list = entries && entries.length ? entries : [{ from: '', to: '' }];
+  return list.map(pathMapRowHtml).join('');
+}
+
+/** DOM → 文本（跳过整行都空的占位行；只填一半的行保留，让后端报第几行）。 */
+function pathMapRowsToText(rowsEl) {
+  if (!rowsEl) return '';
+  const out = [];
+  Array.prototype.forEach.call(rowsEl.querySelectorAll('[data-pathmap-row]'), function (row) {
+    const from = row.querySelector('[data-pathmap-from]').value.trim();
+    const to = row.querySelector('[data-pathmap-to]').value.trim();
+    if (!from && !to) return;
+    out.push(from + ' => ' + to);
+  });
+  return out.join('\n');
+}
+
+/** 增删行之后重排 id/label 的 for，保证 label 点得到对应输入框。 */
+function reindexPathMapRows(rowsEl) {
+  if (!rowsEl) return;
+  Array.prototype.forEach.call(rowsEl.querySelectorAll('[data-pathmap-row]'), function (row, i) {
+    const from = row.querySelector('[data-pathmap-from]');
+    const to = row.querySelector('[data-pathmap-to]');
+    if (from) from.id = 'set-qb-pathmap-from-' + i;
+    if (to) to.id = 'set-qb-pathmap-to-' + i;
+    const labels = row.querySelectorAll('label');
+    if (labels[0]) labels[0].setAttribute('for', 'set-qb-pathmap-from-' + i);
+    if (labels[1]) labels[1].setAttribute('for', 'set-qb-pathmap-to-' + i);
+  });
+}
+
 function sameValue(a, b) {
   if (Array.isArray(a) || Array.isArray(b)) return arrayToText(a) === arrayToText(b);
   if (typeof a === 'number' || typeof b === 'number') return Number(a) === Number(b);
@@ -124,6 +200,15 @@ function qbCard(s) {
               '<p class="field-hint" id="set-qb-password-clear-state" hidden>' + esc(t('set.qb.password.cleared')) + '</p>'
             )
           })}
+        </div>
+        <div class="pathmap" id="set-qb-pathmap" data-field="set-qb-pathmap">
+          <div class="pathmap-head">
+            <span class="pathmap-title">${t('set.qb.pathmap.title')}</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="set-qb-pathmap-add">${raw(icon('plus', 13))}<span>${t('set.qb.pathmap.add')}</span></button>
+          </div>
+          <p class="field-hint">${t('set.qb.pathmap.hint')}</p>
+          <div class="pathmap-rows" id="set-qb-pathmap-rows">${raw(pathMapRowsHtml(parsePathMap(s.downloader_path_map)))}</div>
+          <p class="field-error" data-error-for="set-qb-pathmap"></p>
         </div>
         <p class="field-hint">${t('set.qb.hint')}</p>
         <p class="callout callout-info" id="set-qb-test-result" hidden></p>
@@ -680,7 +765,8 @@ export async function render(container) {
       // L3：正则一行一条 —— 只按行切、不按空格切（正则里可以含空格）。
       extras_patterns: linesToArray(q('#set-extras-patterns').value),
       qbittorrent_url: q('#set-qb-url').value.trim(),
-      qbittorrent_username: q('#set-qb-username').value.trim()
+      qbittorrent_username: q('#set-qb-username').value.trim(),
+      downloader_path_map: pathMapRowsToText(q('#set-qb-pathmap-rows'))
     };
     const password = q('#set-qb-password').value;
     // null = 显式清空（后端语义）；''/缺省 = 保持原值；非空 = 新密码。
@@ -708,6 +794,12 @@ export async function render(container) {
       const e = f.querySelector('.field-error');
       if (e) e.textContent = '';
     });
+    const mapBox = q('#set-qb-pathmap');
+    if (mapBox) {
+      mapBox.classList.remove('field-invalid');
+      const mapErr = mapBox.querySelector('.field-error');
+      if (mapErr) mapErr.textContent = '';
+    }
     function hint(id, key) {
       const box = q('[data-field="' + id + '"]');
       if (box) {
@@ -737,6 +829,23 @@ export async function render(container) {
         }
       }
     });
+    // 回调路径映射：每行都必须是「左侧 => 右侧」，两侧都以 / 开头（绝对路径）。
+    // 同样只提示不阻断；行号按提交文本的物理行算，与后端报错口径一致。
+    const mapErrors = [];
+    String(payload.downloader_path_map || '').split('\n').forEach(function (line, i) {
+      if (!line.trim()) return;
+      const idx = line.indexOf('=>');
+      const from = idx < 0 ? line.trim() : line.slice(0, idx).trim();
+      const to = idx < 0 ? '' : line.slice(idx + 2).trim();
+      if (!from || !to) mapErrors.push(t('set.qb.pathmap.err.partial', { n: i + 1 }));
+      else if (from.charAt(0) !== '/') mapErrors.push(t('set.qb.pathmap.err.from_abs', { n: i + 1 }));
+      else if (to.charAt(0) !== '/') mapErrors.push(t('set.qb.pathmap.err.to_abs', { n: i + 1 }));
+    });
+    if (mapErrors.length && mapBox) {
+      mapBox.classList.add('field-invalid');
+      const mapErr = mapBox.querySelector('.field-error');
+      if (mapErr) mapErr.textContent = mapErrors.join('；');
+    }
   }
 
   /** 后端错误字段名 → 设置页控件 id；映射不到的（含 ""）进顶部通用错误区，message 原样保留。 */
@@ -752,7 +861,8 @@ export async function render(container) {
     extras_patterns: 'set-extras-patterns',
     qbittorrent_url: 'set-qb-url',
     qbittorrent_username: 'set-qb-username',
-    qbittorrent_password: 'set-qb-password'
+    qbittorrent_password: 'set-qb-password',
+    downloader_path_map: 'set-qb-pathmap'
   };
 
   function applyServerErrors(err) {
@@ -942,6 +1052,36 @@ export async function render(container) {
       if (state) state.hidden = !clearPassword;
       dirtyShown(true);
     });
+
+    const pathMapAdd = q('#set-qb-pathmap-add');
+    const pathMapRows = q('#set-qb-pathmap-rows');
+    if (pathMapAdd && pathMapRows) pathMapAdd.addEventListener('click', function () {
+      pathMapRows.insertAdjacentHTML(
+        'beforeend',
+        pathMapRowHtml({ from: '', to: '' }, pathMapRows.querySelectorAll('[data-pathmap-row]').length)
+      );
+      reindexPathMapRows(pathMapRows);
+      const last = pathMapRows.querySelectorAll('[data-pathmap-row] [data-pathmap-from]');
+      if (last.length) last[last.length - 1].focus();
+      dirtyShown(true);
+    });
+    if (pathMapRows) {
+      // bindForm() 只在 paint 时跑一次：后加的行靠冒泡补「未保存」标记。
+      pathMapRows.addEventListener('input', function () { dirtyShown(true); });
+      pathMapRows.addEventListener('change', function () { dirtyShown(true); });
+      pathMapRows.addEventListener('click', function (ev) {
+        const btn = ev.target.closest('[data-pathmap-remove]');
+        if (!btn) return;
+        const row = btn.closest('[data-pathmap-row]');
+        if (row) row.remove();
+        // 删空后补一行空行：标签与示例始终可见（整行空的占位行提交时会被忽略）。
+        if (!pathMapRows.querySelector('[data-pathmap-row]')) {
+          pathMapRows.insertAdjacentHTML('beforeend', pathMapRowHtml({ from: '', to: '' }, 0));
+        }
+        reindexPathMapRows(pathMapRows);
+        dirtyShown(true);
+      });
+    }
 
     const copyToken = q('#set-hook-copy-token');
     if (copyToken) copyToken.addEventListener('click', function () {

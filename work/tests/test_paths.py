@@ -696,3 +696,136 @@ def test_paths_module_never_copies_files(paths_mod):
     assert "import shutil" not in text, "这一层要是能复制文件，这条约束就无从谈起"
     for forbidden in ("shutil.copy", "shutil.copy2", "shutil.copyfile", "shutil.copytree"):
         assert forbidden not in text
+
+
+# --------------------------------------------------------------------------- #
+# 回调路径映射（downloader_path_map）：qBittorrent 容器路径 -> 本应用容器路径
+# --------------------------------------------------------------------------- #
+MAP_TEXT = "/downloads => /vol1/1000/Download/qbittorrent"
+
+
+def test_parse_downloader_map_reads_pairs_and_ignores_blank_and_comment_lines(paths_mod):
+    parsed = paths_mod.parse_downloader_map(
+        "\n"
+        "# qB 里是 /downloads，本应用里是 /vol1/1000/Download/qbittorrent\n"
+        "/downloads => /vol1/1000/Download/qbittorrent\n"
+        "   /downloads/Bangumi => /vol1/1000/Download/qbittorrent/Bangumi   \n"
+        "\n"
+    )
+    assert parsed == [
+        ("/downloads", "/vol1/1000/Download/qbittorrent"),
+        ("/downloads/Bangumi", "/vol1/1000/Download/qbittorrent/Bangumi"),
+    ]
+
+
+def test_parse_downloader_map_rejects_a_line_without_the_arrow(paths_mod):
+    with pytest.raises(ValueError) as exc:
+        paths_mod.parse_downloader_map("/downloads /vol1/1000/Download")
+    assert "第 1 行" in str(exc.value)
+    assert "=>" in str(exc.value)
+
+
+def test_parse_downloader_map_rejects_an_empty_side(paths_mod):
+    for text in ("/downloads =>", "=> /vol1/1000/Download"):
+        with pytest.raises(ValueError) as exc:
+            paths_mod.parse_downloader_map(text)
+        assert "第 1 行" in str(exc.value)
+
+
+def test_parse_downloader_map_rejects_a_relative_side(paths_mod):
+    for text in ("downloads => /vol1/1000/Download", "/downloads => vol1/1000/Download"):
+        with pytest.raises(ValueError) as exc:
+            paths_mod.parse_downloader_map(text)
+        assert "绝对路径" in str(exc.value)
+
+
+def test_parse_downloader_map_rejects_a_duplicate_source_prefix(paths_mod):
+    with pytest.raises(ValueError) as exc:
+        paths_mod.parse_downloader_map("/downloads => /a\n/downloads => /b")
+    message = str(exc.value)
+    assert "第 2 行" in message and "重复" in message
+
+
+def test_parse_downloader_map_rejects_the_root_as_a_source_prefix(paths_mod):
+    with pytest.raises(ValueError) as exc:
+        paths_mod.parse_downloader_map("/ => /vol1/1000")
+    assert "不能是 /" in str(exc.value)
+
+
+def test_parse_downloader_map_returns_an_empty_list_for_empty_input(paths_mod):
+    assert paths_mod.parse_downloader_map("") == []
+    assert paths_mod.parse_downloader_map(None) == []
+
+
+def test_translate_downloader_path_is_a_no_op_without_a_mapping(paths_mod):
+    assert paths_mod.translate_downloader_path("/downloads/Show", []) == ("/downloads/Show", None, None)
+
+
+def test_translate_downloader_path_is_a_no_op_when_no_prefix_matches(paths_mod):
+    translated, rule, warning = paths_mod.translate_downloader_path(
+        "/complete/Show", [("/downloads", "/vol1/1000/Download")], exists=lambda _: True
+    )
+    assert (translated, rule, warning) == ("/complete/Show", None, None)
+
+
+def test_translate_downloader_path_keeps_an_empty_path_empty(paths_mod):
+    assert paths_mod.translate_downloader_path("", [("/downloads", "/x")], exists=lambda _: True) == (
+        "",
+        None,
+        None,
+    )
+
+
+def test_translate_downloader_path_rewrites_a_matching_prefix(paths_mod):
+    translated, rule, warning = paths_mod.translate_downloader_path(
+        "/downloads/Bangumi/Show", [("/downloads", "/vol1/1000/Download/qbittorrent")],
+        exists=lambda _: True,
+    )
+    assert translated == "/vol1/1000/Download/qbittorrent/Bangumi/Show"
+    assert rule == MAP_TEXT and warning is None
+
+
+def test_translate_downloader_path_prefers_the_longest_prefix(paths_mod):
+    mapping = [
+        ("/downloads", "/vol1/1000/Download/qbittorrent"),
+        ("/downloads/Bangumi", "/vol2/Bangumi"),
+    ]
+    translated, rule, warning = paths_mod.translate_downloader_path(
+        "/downloads/Bangumi/Show", mapping, exists=lambda _: True
+    )
+    assert translated == "/vol2/Bangumi/Show"
+    assert rule == "/downloads/Bangumi => /vol2/Bangumi"
+    assert warning is None
+
+
+def test_translate_downloader_path_does_not_let_downloads_steal_downloads2(paths_mod):
+    """按路径段比较：``/downloads2`` 不能被 ``/downloads`` 误吃。"""
+    translated, rule, warning = paths_mod.translate_downloader_path(
+        "/downloads2/Show", [("/downloads", "/vol1/1000/Download")], exists=lambda _: True
+    )
+    assert (translated, rule, warning) == ("/downloads2/Show", None, None)
+
+
+def test_translate_downloader_path_refuses_a_target_that_does_not_exist(paths_mod):
+    """换算目标不存在时宁可不换算：切到凑巧同名的无关目录比退回全量更糟。"""
+    translated, rule, warning = paths_mod.translate_downloader_path(
+        "/downloads/Bangumi/Show", [("/downloads", "/vol1/1000/Download")], exists=lambda _: False
+    )
+    assert translated == "/downloads/Bangumi/Show"
+    assert rule is None
+    assert warning and "不存在" in warning
+
+
+def test_translate_downloader_path_probes_the_translated_path_not_the_raw_one(paths_mod):
+    seen: list[str] = []
+
+    def _exists(path: str) -> bool:
+        seen.append(path)
+        return path.endswith("/Show")
+
+    translated, rule, _warning = paths_mod.translate_downloader_path(
+        "/downloads/Show", [("/downloads", "/vol1/1000/Download")], exists=_exists
+    )
+    assert translated == "/vol1/1000/Download/Show"
+    assert rule == "/downloads => /vol1/1000/Download"
+    assert seen == ["/vol1/1000/Download/Show"]

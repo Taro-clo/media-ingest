@@ -116,7 +116,7 @@ x-data-dir: &data-dir "${MLM_DATA_DIR:-./data}"
 
 ### 2.1 为什么只挂一个共同父目录（以及 `:ro` 为什么退场）
 
-**（a）容器路径必须等于宿主路径**：qBittorrent 的「运行外部程序」把 `%F`（**qBittorrent 容器视角**的路径，如 `/vol1/1000/Download/qbittorrent/Bangumi/Show A`）传进来。本应用容器路径与宿主一致 ⇒ 拿来就能用，不需要 `HOST_PATH_MAP` 翻译；改成挂 `/dl` 会让所有回调指向不存在的路径 —— 这是**契约**而非偏好（[`../contracts/ARCHITECTURE.md`](../contracts/ARCHITECTURE.md) §2）。
+**（a）容器路径必须等于宿主路径**：qBittorrent 的「运行外部程序」把 `%F`（**qBittorrent 容器视角**的路径，如 `/vol1/1000/Download/qbittorrent/Bangumi/Show A`）传进来。本应用容器路径与宿主一致 ⇒ 拿来就能用，不需要 `HOST_PATH_MAP` 翻译；改成挂 `/dl` 会让所有回调指向不存在的路径 —— 这是**契约**而非偏好（[`../contracts/ARCHITECTURE.md`](../contracts/ARCHITECTURE.md) §2）。**唯一例外**：如果 qBittorrent 容器的挂载方式改不了（例如它把下载目录挂成 `/downloads`），可以在设置页 qBittorrent 卡片里配「回调路径映射」（设置项 `downloader_path_map`，一行 `qB 容器路径 => 本应用容器路径`），回调会先把 `%F` 换算过来再匹配 —— 见 [`USER_GUIDE.md`](USER_GUIDE.md) §8.8、[`../contracts/API.md`](../contracts/API.md) §5.2 / §6.1。**只配映射、不改挂载**时，库的源目录/目标目录仍填本应用容器内的路径。
 
 **（b）`:ro` 为什么退场**：内核 `do_linkat()` 比较挂载身份（`old_path.mnt != new_path.mnt` ⇒ `EXDEV`），与 `st_dev` / `fsid` / btrfs 子卷无关。拆成两条独立 bind ⇒ 两个挂载 ⇒ 硬链接永远建不出来（"任务全部 `link_failed` + `[Errno 18] Invalid cross-device link`"的根因），而只看 `st_dev` 的预检还会报"可以创建硬链接" —— **假绿**。源目录只读与硬链接可建只能二选一；本项目选后者 + 可验证的完整性核对。
 
@@ -301,6 +301,7 @@ HOST_PATH_MAP={}                  # 路径映射，**只用于界面展示**；�
 > **不要删 compose 里的 `env_file: - .env`**，删了它只是个躺在磁盘上的文本文件。
 
 > 💡 `HOST_PATH_MAP` 只是"给人看的翻译表"：`{}` 与显式恒等映射 `{"/vol1/1000":"/vol1/1000"}` 等价；只有迁移到**非恒等部署**（容器内仍是 `/downloads`、`/library`）时才需要覆盖。键必须是带前导 `/` 的绝对容器路径。`PUID`/`PGID` 怎么查、改完要 `chown` 什么见 §10。
+> 📌 **别和「回调路径映射」混淆**：`HOST_PATH_MAP` 是环境变量、**容器 → 宿主**、只影响显示；设置项 `downloader_path_map`（设置页 qBittorrent 卡片里填）是 **qBittorrent 容器 → 本应用容器**、**参与回调路径换算**。qBittorrent 容器路径与应用不一致时改的是后者，不是这里（§2.1(a)、[`USER_GUIDE.md`](USER_GUIDE.md) §8.8）。
 
 ### 4.2.1 部署资产自检（可选，**不需要 docker**）
 
@@ -453,6 +454,8 @@ docker compose -f docker-compose.release.yml ps        # STATUS 出现 (healthy)
 | 端口 | `18081` | 改 `x-port` 锚点（或设 `PORT=18099`，宿主与容器同步移动） |
 | `HOST_PATH_MAP` | 空 = 恒等（容器路径就是宿主路径） | 只在容器内路径 ≠ 宿主路径时才需要 |
 
+> 📌 qBittorrent 容器路径与本应用不一致时，**不要**加环境变量：改设置页 qBittorrent 卡片里的「回调路径映射」（设置项 `downloader_path_map`，§5.2）。`HOST_PATH_MAP` 只影响显示，改它修不好回调。
+
 - `MEDIA_ROOT` 必须是宿主上真实存在的目录；**下载目录与媒体库在同一个挂载里**这条不变量不变（§2、§3）。
 - 数据卷默认建在 compose 同目录的 `./data`；想用 ① 创建的目录就把 `x-data-dir` 改成它的宿主绝对路径。
 - 后续验证、创建管理员、接 qBittorrent 与源码构建完全相同：§4.4 → §4.5 → §5。
@@ -487,6 +490,14 @@ qBittorrent WebUI（`http://<HOST_IP>:18080`）→ **设置 → 下载 → 运�
 | **`--data-urlencode`** | 种子名/路径可能含空格与中文，不能写 `-d "name=%N"` |
 
 > `%F` 为什么能直接用：qBittorrent 容器与本应用把同一宿主目录挂在**同一个容器内路径**（§2.1）。`curl` 由 qBittorrent 镜像自带。
+
+**两边容器路径不一致时（qBittorrent 把下载目录挂成 `/downloads`）**：优先让 qBittorrent 也按同一个容器路径挂载（改成 `-v /vol1/1000/Download/qbittorrent:/vol1/1000/Download/qbittorrent` 或 `-v /vol1/1000:/vol1/1000`）。挂载改不了时，在**设置页 → qBittorrent 卡片 → 回调路径映射**里加一条（设置项 `downloader_path_map`）：
+
+| 容器内路径（qBittorrent 容器里的路径） | 绝对路径（本应用容器里的绝对路径） |
+|---|---|
+| `/downloads` | `/vol1/1000/Download/qbittorrent` |
+
+回调会先把 `%F` 的前缀按映射替换（多条时取最长前缀），再做库匹配与一级文件夹切分。换算后的路径**必须真实存在**，否则这次不换算（通常退化为整库全量）并在响应 `warnings` 里说明。**库的源目录/目标目录/匹配路径前缀仍填本应用容器内的路径**。接口口径见 [`../contracts/API.md`](../contracts/API.md) §5.2 / §6.1，界面说明见 [`USER_GUIDE.md`](USER_GUIDE.md) §8.8。
 
 ### 5.3 验证回调真的生效
 
@@ -529,6 +540,8 @@ curl -s -b cookies.txt -X PUT http://127.0.0.1:18081/api/settings \
 ### 5.5 （可选）qBittorrent API 连接信息
 
 设置页的 `qbittorrent_url` / `qbittorrent_username` / `qbittorrent_password` 用于 **API 补偿**（向 qBittorrent 查种子列表）。应用**不靠它工作**：回调与扫描都不依赖它，不填不影响主流程。
+
+> 📌 同一张卡片里的「**回调路径映射**」（设置项 `downloader_path_map`）不是补偿项：它**参与回调的路径换算**（§5.2），只在 qBittorrent 容器路径与应用容器路径不一致时才需要填，留空 = 不换算。
 
 ---
 

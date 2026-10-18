@@ -693,6 +693,116 @@ def test_qbittorrent_hook_requires_a_token_and_matches_configured_libraries(
     assert len(scan_body["tasks"]) == scan_body["matched"], scan_body
 
 
+def test_downloader_path_map_translates_the_content_path_before_scoping(
+    api_client, api_login, build_tree, source_dir, target_dir
+):
+    """qB 容器路径 ``/downloads/...`` 经设置里的映射换算后才切得出一级文件夹。
+
+    这正是「两边容器路径不一致」时唯一的正解：不换算的话 ``_first_folder_under`` 永远
+    返回 None，每次回调都会退化成整库全量。
+    """
+    import app.paths as app_paths  # noqa: PLC0415 - 只在被测模块可导入时加载
+
+    api_login(api_client)
+    build_tree(source_dir, MEDIA_TREE)
+    _create_library(api_client, source_dir, target_dir, match_categories=["Bangumi"])
+    token = api_client.get("/api/settings").json()["hook_token"]
+
+    saved = api_client.put(
+        "/api/settings",
+        json={"downloader_path_map": f"# qB 视角 => 应用视角\n/downloads => {source_dir}\n"},
+    )
+    assert saved.status_code == 200, saved.text
+    assert "/downloads =>" in saved.json()["downloader_path_map"], saved.text
+
+    matched = api_client.post(
+        "/api/hooks/qbittorrent",
+        params={
+            "name": "Show A",
+            "hash": "deadbeef",
+            "category": "Bangumi",
+            "content_path": "/downloads/Show A",
+            "save_path": "/downloads",
+            "token": token,
+        },
+    )
+    assert matched.status_code == 200, matched.text
+    body = matched.json()
+    app_content = app_paths.normalize(str(source_dir / "Show A"))
+    assert body["matched"] == 1, body
+    assert body["translation"] == {
+        "applied": True,
+        "rule": f"/downloads => {app_paths.normalize(str(source_dir))}",
+        "raw": "/downloads/Show A",
+        "app": app_content,
+        "warning": None,
+    }, body
+    assert any("已按映射" in warning for warning in body["warnings"]), body
+
+    task_id = body["tasks"][0]
+    detail = _wait_for_task(api_client, task_id if isinstance(task_id, int) else task_id["id"])
+    assert detail["scope"] == {"mode": "folder", "folder": "Show A"}, detail
+    # payload 里保留两个视角：排查「为什么跑了整库」时都要看。
+    assert detail["payload"]["content_path"] == "/downloads/Show A", detail["payload"]
+    assert detail["payload"]["content_path_app"] == app_content, detail["payload"]
+
+
+def test_downloader_path_map_falls_back_to_full_when_the_translated_path_is_missing(
+    api_client, api_login, build_tree, source_dir, target_dir
+):
+    """映射配错（右侧在应用容器里不可见）时：不换算、退回全量、给出警告，绝不 500。"""
+    api_login(api_client)
+    build_tree(source_dir, MEDIA_TREE)
+    _create_library(api_client, source_dir, target_dir, match_categories=["Bangumi"])
+    token = api_client.get("/api/settings").json()["hook_token"]
+    wrong = api_client.put(
+        "/api/settings", json={"downloader_path_map": "/downloads => /nope/definitely-missing\n"}
+    )
+    assert wrong.status_code == 200, wrong.text
+
+    body = api_client.post(
+        "/api/hooks/qbittorrent",
+        params={
+            "name": "Show A",
+            "hash": "deadbeef",
+            "category": "Bangumi",
+            "content_path": "/downloads/Show A",
+            "token": token,
+        },
+    ).json()
+    assert body["matched"] == 1, body
+    assert body["translation"]["applied"] is False, body
+    assert body["translation"]["warning"], body
+    assert any("不存在" in warning for warning in body["warnings"]), body
+
+    task_id = body["tasks"][0]
+    detail = _wait_for_task(api_client, task_id if isinstance(task_id, int) else task_id["id"])
+    assert detail["scope"] == {"mode": "full"}, detail
+
+
+def test_downloader_path_map_is_validated_on_save_and_round_trips(api_client, api_login, db_mod):
+    api_login(api_client)
+    assert api_client.get("/api/settings").json()["downloader_path_map"] == ""
+
+    bad = api_client.put(
+        "/api/settings", json={"downloader_path_map": "/downloads /vol1/1000/Download"}
+    )
+    assert bad.status_code == 400, bad.text
+    assert "回调路径映射格式错误" in bad.json()["detail"], bad.text
+    assert db_mod.get_setting("downloader_path_map") in ("", None), "400 不许落盘"
+
+    text = (
+        "# qB 视角 => 应用视角\n"
+        "/downloads => /vol1/1000/Download/qbittorrent\n"
+        "\n"
+        "/downloads/Bangumi => /vol1/1000/Download/qbittorrent/Bangumi\n"
+    )
+    saved = api_client.put("/api/settings", json={"downloader_path_map": text})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["downloader_path_map"] == text, saved.text
+    assert api_client.get("/api/settings").json()["downloader_path_map"] == text
+
+
 def test_settings_password_semantics_are_exact(api_client, api_login, db_mod):
     api_login(api_client)
 
@@ -731,11 +841,16 @@ def test_settings_password_semantics_are_exact(api_client, api_login, db_mod):
     assert "日志级别" in bad_level.json()["detail"]
 
 
-def test_system_info_exposes_paths_and_processors(api_client, api_login):
+def test_system_info_exposes_paths_and_processors(api_client, api_login, source_dir, target_dir):
     """`/api/system/info` 的形状：`config_dir`/`processors`/`libraries`/`config`/`scan`；
     已废除的字段一律不出现。
+
+    ``same_filesystem`` 判的是**第一个媒体库**的源/目标（``app/routers/system.py`` 的
+    ``_same_filesystem_view``：没有库时按设计返回三态里的 ``null``），所以这里先建一个库，
+    否则拿到的是 null 而不是本次要钉的 ``true``。
     """
     api_login(api_client)
+    _create_library(api_client, source_dir, target_dir, name="系统信息库")
 
     info = api_client.get("/api/system/info")
     assert info.status_code == 200, info.text

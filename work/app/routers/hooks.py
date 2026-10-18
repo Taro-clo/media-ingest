@@ -19,10 +19,16 @@ curl -s -X POST "http://192.168.1.100:18081/api/hooks/qbittorrent?token=<HOOK_TO
 
 1. **参数在表单体里**（``--data-urlencode`` 发的是 ``application/x-www-form-urlencoded``），
    ``token`` 在查询串里。所以本接口是 ``async`` 的，要自己把请求体读出来解析。
-2. ``%F``/``%D``/``%R`` **不需要路径转换**：本项目把 ``/downloads``、``/library`` 挂成与
-   qBittorrent 容器**完全相同**的容器路径（ARCHITECTURE §2），qB 递过来的就是容器路径。
+2. ``%F``/``%D``/``%R`` **通常不需要路径转换**：本项目推荐把 ``/downloads``、``/library``
+   挂成与 qBittorrent 容器**完全相同**的容器路径（ARCHITECTURE §2），qB 递过来的就是容器路径。
    仍然调用 ``paths.to_container()`` 兜底：它第一步就是"已是容器路径 -> 原样返回"，
    万一将来的挂载方式变了（或用户在库里手填了宿主路径）也不至于匹配不上。
+   **两边容器路径不一致时**（qB 里 ``/downloads``、本应用里 ``/vol1/1000/Download/qbittorrent``），
+   在设置页填「回调路径映射」（``downloader_path_map``）：本函数在匹配库之前先用
+   ``paths.translate_downloader_path`` 把 ``content_path`` 换成应用容器路径，
+   换算结果必须真实存在，否则不换算并给出 warning（详见 ``paths`` 里那段的说明）。
+   换算后的路径已经属于「应用空间」，因此再调用 ``to_container`` 会做**双重换算** ——
+   ``_match_library`` 的 ``already_app_space`` 参数就是用来跳过那一步的。
 3. **全部匹配条件为空的库永远不匹配**（§5.3 末段）：一个三条条件都没填的库，
    如果不能"不匹配"，就会抓住每一个完成的种子——那是比漏抓危险得多的默认行为。
 
@@ -45,7 +51,7 @@ from urllib.parse import parse_qsl
 from fastapi import APIRouter, Request
 
 from .. import paths, security
-from ..db import get_conn
+from ..db import get_conn, get_setting
 from ..queue import TaskSpec, queue
 from .common import unauthorized
 
@@ -146,8 +152,15 @@ def _first_folder_under(source_dir: str, content_path: str) -> str | None:
     return first or None
 
 
-def _match_library(row, category: str, tags: set[str], content_path: str) -> tuple[bool, str]:
-    """判断一个库是否命中；返回 ``(是否命中, 未命中的中文原因)``。"""
+def _match_library(
+    row, category: str, tags: set[str], content_path: str, *, already_app_space: bool = False
+) -> tuple[bool, str]:
+    """判断一个库是否命中；返回 ``(是否命中, 未命中的中文原因)``。
+
+    ``already_app_space=True`` 表示 ``content_path`` 已经过「回调路径映射」换算、
+    属于本应用容器路径，**不能再套一次** ``paths.to_container``（否则命中
+    ``host_path_map`` 宿主前缀时会被换算两次）。默认 ``False`` 保持原有兜底行为。
+    """
     try:
         import json
 
@@ -178,7 +191,10 @@ def _match_library(row, category: str, tags: set[str], content_path: str) -> tup
         if not content_path:
             return False, "该库配置了路径前缀条件，但回调没有带 content_path。"
         # 前缀在库里可能是宿主路径（用户手填），统一换算到容器路径再比。
-        normalized = paths.normalize(paths.to_container(content_path))
+        # 但若 content_path 已经过回调路径映射（应用空间），再 to_container 就是双重换算。
+        normalized = paths.normalize(
+            content_path if already_app_space else paths.to_container(content_path)
+        )
         if not any(
             paths.is_inside(normalized, paths.normalize(paths.to_container(str(prefix))))
             for prefix in prefixes
@@ -245,8 +261,21 @@ async def qbittorrent_hook(request: Request) -> dict:
 
     category = (params.get("category") or "").strip()
     tags = _split_tags(params.get("tags"))
-    content_path = (params.get("content_path") or "").strip()
+    raw_content_path = (params.get("content_path") or "").strip()
     explicit_kind = EXPLICIT_KINDS.get((params.get("kind") or "").strip().lower())
+
+    # 回调路径映射（qB 容器路径 -> 本应用容器路径）。设置坏掉时只降级、
+    # 绝不让 /api/hooks/* 500：回调链路上任何异常都会变成 qB 里一条静默失败。
+    path_map: list[tuple[str, str]] = []
+    try:
+        path_map = paths.parse_downloader_map(get_setting("downloader_path_map", "") or "")
+    except ValueError:
+        logger.warning("设置项 downloader_path_map 不合法，本次回调不做路径换算。", exc_info=True)
+    content_path, mapped_rule, mapped_warning = paths.translate_downloader_path(
+        raw_content_path, path_map
+    )
+    # 换算成功的路径已是「应用空间」；未换算（含换算后不存在）时仍按原语义处理。
+    content_path_is_app_space = mapped_rule is not None
 
     rows = get_conn().execute(
         "SELECT * FROM libraries WHERE enabled=1 ORDER BY id ASC"
@@ -255,9 +284,23 @@ async def qbittorrent_hook(request: Request) -> dict:
     ignored: list[str] = []
     ignored_details: list[dict] = []
     warnings: list[str] = []
+    if mapped_rule:
+        warnings.append(
+            f"回调路径已按映射 {mapped_rule} 换算：{raw_content_path} → {content_path}"
+        )
+        logger.info("qB 回调路径换算（%s）：%s → %s", mapped_rule, raw_content_path, content_path)
+    elif mapped_warning:
+        warnings.append(mapped_warning)
+        logger.warning("qB 回调路径映射未生效：%s", mapped_warning)
 
     for row in rows:
-        matched, reason = _match_library(row, category, tags, content_path)
+        matched, reason = _match_library(
+            row,
+            category,
+            tags,
+            content_path,
+            already_app_space=content_path_is_app_space,
+        )
         if not matched:
             ignored.append(row["name"])
             ignored_details.append(
@@ -290,7 +333,10 @@ async def qbittorrent_hook(request: Request) -> dict:
                         "torrent_hash": params.get("hash") or "",
                         "category": category,
                         "tags": sorted(tags),
-                        "content_path": content_path,
+                        # 原始值（qB 视角）与前缀换算后的应用路径都留着：
+                        # 排查"为什么跑了整库/为什么没命中"时两个都要看。
+                        "content_path": raw_content_path,
+                        "content_path_app": content_path,
                         "save_path": params.get("save_path") or "",
                         "root_path": params.get("root_path") or "",
                     },
@@ -315,7 +361,7 @@ async def qbittorrent_hook(request: Request) -> dict:
         )
         if not rows:
             warnings.append("当前没有任何**已启用**的媒体库，回调无处可去。")
-    return {
+    result = {
         "matched": len(task_ids),
         "tasks": task_ids,
         "ignored": ignored,
@@ -326,6 +372,16 @@ async def qbittorrent_hook(request: Request) -> dict:
             "hash": params.get("hash") or "",
         },
     }
+    # 只有配置了映射才带上这一块（没配 = 行为与旧版逐字节一致，前端/脚本无需改）。
+    if path_map:
+        result["translation"] = {
+            "applied": bool(mapped_rule),
+            "rule": mapped_rule,
+            "raw": raw_content_path,
+            "app": content_path,
+            "warning": mapped_warning,
+        }
+    return result
 
 
 @router.post("/scan")

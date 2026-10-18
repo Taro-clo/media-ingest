@@ -1,5 +1,31 @@
 # 变更记录
 
+## [Unreleased]
+
+### 新增：qBittorrent 回调路径映射（设置项 `downloader_path_map`）
+
+**场景**：qBittorrent 容器把下载目录挂成 `/downloads`，而本应用按单挂载契约使用与宿主同构的容器路径
+（如 `/vol1/1000/Download/qbittorrent`）⇒ 回调带来的 `%F` 在应用里不存在。此前只能按分类命中、切不出一级
+文件夹，每次退化为**整库全量**；要修复只能改 qBittorrent 的挂载或自己写 wrapper 脚本。
+
+- **WebUI**：设置页 → qBittorrent 卡片新增「回调路径映射」，可添加**多条**。左侧输入框标注「容器内路径
+  （qBittorrent 容器里的路径）」（示例 `/downloads`），右侧标注「绝对路径（本应用容器里的绝对路径）」
+  （示例 `/vol1/1000/Download/qbittorrent`），各自带示例提示；留空 = 不换算（旧行为）。
+- **行为**：回调入口先按**最长前缀**把 `content_path` 换算成本应用容器路径，再做库匹配与一级文件夹切分；
+  换算后的路径**必须真实存在**，否则本次不换算（通常退化为全量）并在响应 `warnings` 里说明。响应新增
+  `translation{applied,rule,raw,app,warning}` 块（仅在配置了映射时出现）。
+  库的 `source_dir` / `target_dir` / `match_path_prefixes` 仍一律填**本应用容器**内的路径。
+- **设置项**：`downloader_path_map`（默认 `""`，多行文本，一行一条 `qB 容器路径 => 本应用容器路径`，
+  `#` 注释与空行忽略）。`GET/PUT /api/settings` 读写；格式错误（缺 `=>`、某一侧为空、非绝对路径、
+  左侧重复、左侧为 `/`）在 `PUT` 时整体 `400`，`detail` 点名第几行。无需数据库迁移（`DEFAULT_SETTINGS` 新增默认空串）。
+- **与 `HOST_PATH_MAP` 的区别**：`HOST_PATH_MAP` 是环境变量、容器路径 → **宿主**路径、**只用于显示**；
+  `downloader_path_map` 是设置项、**qBittorrent 容器**路径 → **本应用容器**路径、**参与回调的功能判定**。
+- **测试**：`tests/test_paths.py` 15 个单元用例（解析/最长前缀/边界/目标不存在回退）+ `tests/test_api_smoke.py`
+  3 个集成用例（换算后命中并切出一级文件夹、目标不存在退化为全量、保存校验与回显）。
+- **文档**：`docs/contracts/API.md` §5.2/§5.3/§6.1、`docs/contracts/ARCHITECTURE.md` §2/§5/§8、
+  `docs/guides/USER_GUIDE.md` §4.4/§8.8/§9/§8.10、`docs/guides/DEPLOYMENT.md` §2.1/§4.2/§5.2/§5.5、
+  `docs/meta/TEST-MAP.md`、`examples/qbittorrent-autorun.md` §3/§4。
+
 ## [1.0.0] — 2026-10-16
 
 **首次公开发布。** 运行期版本串 `app.__version__ = "1.0.0"`；镜像 `media-ingest:1.0.0`

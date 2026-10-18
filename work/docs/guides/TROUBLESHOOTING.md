@@ -102,6 +102,7 @@ docker compose logs --tail=100 media-ingest
 | 删了作品记录还是没重做 | [28](#28-删了作品记录下次运行还是没重做) |
 | 目标里多出 ` (2)` 后缀文件 | [29](#29-删除后目标里出现--2-后缀文件) |
 | 文件名少了一段 / `unknown_params` | [31](#31-文件名少了一段命名里用了不存在的变量名) |
+| 回调命中但每次整库全量 / `warnings` 说不在源目录的一级文件夹下 | [32](#32-回调每次都整库全量content_path-和库的路径对不上) |
 
 > 本文件里的「场景 N」与 `§N` 是同一个编号，两种写法都在用（其它文档与测试里有 `TROUBLESHOOTING.md §17`、`§21`、`场景 1`/`场景 3`、`场景 24` 这样的引用）。**编号与主题一一对应且不再重排**；新增场景只能追加编号。
 >
@@ -841,6 +842,24 @@ ls -li <target_dir>/<作品>/            # 看 inode 与链接数
 1. 从编辑页按钮插入变量；对照可用名单：12 个模板变量 + 引擎内置键（`ENGINE_ONLY_VARS`，当前只有 `episode_resolved`）+ 该处理器 `naming.expressions` 里**定义过**的名字。`episode_resolved` 不在按钮里，但模板与段都能直接写。
 2. 自定义表达式名必须**先定义再用**（[`PROCESSORS.md`](../contracts/PROCESSORS.md) §4）。
 3. 想彻底不出现"少一段"，就把它删掉而不是留一个拼错的名字。
+
+---
+
+## 32. 回调每次都整库全量（content_path 和库的路径对不上）
+
+**【现象】** 下载完成回调返回 `200`、`matched` ≥ 1，但任务详情里 `scope.mode` 是 `"full"`，每次都把整个源目录再扫一遍；响应 `warnings` 里有「回调的 `content_path=…` 不在源目录 … 的某个一级文件夹下，无法缩小范围，本次按全量执行」。
+
+**【原因】** `%F` 是 **qBittorrent 容器视角** 的路径（典型：`/downloads/Bangumi/Show A`），而库的 `source_dir` 是**本应用容器内**的路径（单挂载形态下 = 宿主真实路径，如 `/vol1/1000/Download/qbittorrent/Bangumi`）。分类/标签能命中，但路径对不上 ⇒ 切不出一级文件夹 ⇒ 退化成全量。
+
+**【诊断命令】** 响应 `warnings` 与任务详情 `scope`；`GET /api/settings` 里 `downloader_path_map` 是否为空；在 qBittorrent 侧确认真实 `%F`（qB 容器里执行 `docker exec qbittorrent sh -c 'echo %F'`，或看它在「运行外部程序」日志里记的命令）。
+
+**【解决步骤】**
+
+1. **【浏览器】** 设置页 → qBittorrent 卡片 → 「回调路径映射」加一条：**容器内路径（qBittorrent 容器里的路径）** 填 `/downloads`，**绝对路径（本应用容器里的绝对路径）** 填 `/vol1/1000/Download/qbittorrent`，保存（规则与示例见 [`USER_GUIDE.md`](USER_GUIDE.md) §8.8）。
+2. 重新触发一次回调，响应应出现 `"translation": {"applied": true, "rule": "/downloads => /vol1/1000/Download/qbittorrent", …}`，任务 `scope.mode` 变成 `"folder"`。
+3. `translation.applied` 是 `false` 且 `warning` 说换算后路径不存在 ⇒ 右边填错了（`/api/system/info` 的 `mounts[]` 能看到本应用容器里的真实路径），改映射即可；换算后路径**必须真实存在**，否则本次仍按全量执行。
+4. 库的 `source_dir` / `target_dir` / 匹配条件里的路径**永远填本应用容器内的路径**，不要填 `/downloads`。
+5. 也可以反过来让两边容器路径一致（qB 改成挂 `/vol1/1000`），那样就不需要映射；见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §5.2。
 
 ---
 
