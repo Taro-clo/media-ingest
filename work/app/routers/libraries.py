@@ -190,21 +190,34 @@ def _permission_precheck(source_dir: str, target_dir: str) -> None:
     """建库/改库保存时，以**应用自己的运行身份**实测读源、写目标。
 
     不依赖 WebUI 的「预检」按钮（用户很可能不会点）：保存那一刻就拦下必然失败的配置，
-    并把当前运行身份和排查入口写进 400 文案，免得等到第一次跑任务才看到 Permission denied。
+    免得等到第一次跑任务才看到 Permission denied。
 
     注意：**源目录还不存在不算错**——「先建库、后有第一次下载」是正常流程（旧行为如此），
     这种情况留给「预检」提示；这里只拦权限类硬错（源不可读、目标/祖先不可写、目标路径是文件）。
+
+    失败时抛 400，``detail`` 是结构化对象（WebUI 用它弹「保存失败」明细窗）::
+
+        {"code": "permission_precheck", "title": "保存失败", "message": "源目录不可读：/a",
+         "identity": "uid=1000, gid=1000, 附加组=[1000]",
+         "issues": [{"kind", "label", "path", "cause", "fix"}], "hint": "排查方法见…"}
     """
     report = paths.probe_media_access(source_dir, target_dir)
-    errors = report["errors"]
+    issues = report["issues"]
     if not report["source_exists"]:
-        errors = [message for message in errors if not message.startswith("源目录")]
-    if not errors:
+        # 源目录缺失留给「预检」提示（先建库、后有第一次下载是正常流程）。
+        issues = [issue for issue in issues if issue["kind"] != "source_missing"]
+    if not issues:
         return
+    message = "；".join(f"{issue['label']}：{issue['path']}" for issue in issues)
     raise bad_request(
-        "；".join(errors)
-        + f" 当前运行身份：{report['identity']}。"
-        + "排查方法见「常见问题」第 43 问：用应用身份实测源目录可读、目标目录可写。"
+        {
+            "code": "permission_precheck",
+            "title": "保存失败",
+            "message": message,
+            "identity": report["identity"],
+            "issues": issues,
+            "hint": "按上面的「处理」改完再保存；排查方法见「常见问题」第 43 问。",
+        }
     )
 
 

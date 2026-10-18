@@ -438,13 +438,31 @@ def _write_probe(directory: str) -> tuple[bool, str | None]:
     return True, None
 
 
+def _permission_issue(kind: str, label: str, path: str, cause: str, fix: str) -> dict:
+    """一条可读的权限问题：``code`` 给程序看，``label``/``cause``/``fix`` 给用户看。
+
+    ``fix`` 的第一条必须是「调整 PUID/PGID」——那是绝大多数部署里真正的根因
+    （容器身份与宿主目录属主不一致），其余 chmod/chown 只是补救。
+    """
+    return {
+        "kind": kind,
+        "label": label,
+        "path": path,
+        "cause": cause,
+        "fix": fix,
+    }
+
+
 def probe_media_access(source_dir: str, target_dir: str) -> dict:
     """用**当前进程身份**实测：源目录可读可进入、目标目录可写。
 
     建库/改库保存时调用；返回::
 
         {"ok": bool, "identity": str, "errors": [...], "warnings": [...],
-         "source_exists": bool, "target_exists": bool, "probe": {...}}
+         "issues": [{kind, label, path, cause, fix}], ...}
+
+    ``errors`` 是给 ``/validate`` 与日志用的**一行短文案**；``issues`` 是给 WebUI
+    保存失败弹窗用的结构化明细（每条带原因与处理办法）。
 
     - 源目录不存在 / 不是目录 / 不可读 ⇒ ``errors``（建链阶段必失败，提前拦）
     - 目标目录已存在但写不进 ⇒ ``errors``（用真实临时文件探测，只读挂载也拦得住）
@@ -457,6 +475,7 @@ def probe_media_access(source_dir: str, target_dir: str) -> dict:
         "identity": identity,
         "errors": [],
         "warnings": [],
+        "issues": [],
         "source_exists": False,
         "target_exists": False,
         "probe": None,
@@ -466,14 +485,26 @@ def probe_media_access(source_dir: str, target_dir: str) -> dict:
 
     report["source_exists"] = os.path.isdir(source)
     if not report["source_exists"]:
-        report["errors"].append(
-            f"源目录 {source} 不存在或不是目录：建链阶段会在这里报错，请先完成一次下载或修正挂载"
-            f"（当前运行身份：{identity}）。"
+        report["errors"].append(f"源目录不存在：{source}")
+        report["issues"].append(
+            _permission_issue(
+                "source_missing",
+                "源目录不存在",
+                source,
+                "建链阶段需要读取这个目录，目录不存在会直接报错（先完成一次下载，或修正挂载路径）",
+                "在 qBittorrent 里完成一次下载后重试；或把源目录改成一个已存在的目录",
+            )
         )
     elif not _can_read_directory(source):
-        report["errors"].append(
-            f"源目录 {source} 对应用运行身份（{identity}）不可读或不可进入："
-            f"回调任务会报 Permission denied。"
+        report["errors"].append(f"源目录不可读：{source}")
+        report["issues"].append(
+            _permission_issue(
+                "source_unreadable",
+                "源目录不可读",
+                source,
+                f"运行身份 {identity} 对该目录没有读/进入权限，建链时会报 Permission denied",
+                f"先把容器 PUID/PGID 改成该目录属主；或 chmod 755 {source}；或 chown 到运行身份",
+            )
         )
 
     report["target_exists"] = os.path.isdir(target)
@@ -481,29 +512,51 @@ def probe_media_access(source_dir: str, target_dir: str) -> dict:
         writable, note = _write_probe(target)
         report["probe"] = {"target": target, "ok": writable, "note": note}
         if not writable:
-            report["errors"].append(
-                f"目标目录 {target} 对应用运行身份（{identity}）不可写（{note}）：建链阶段会失败。"
+            report["errors"].append(f"目标目录不可写：{target}（{note}）")
+            report["issues"].append(
+                _permission_issue(
+                    "target_unwritable",
+                    "目标目录不可写",
+                    target,
+                    f"运行身份 {identity} 在该目录创建文件被拒绝（{note}），建链阶段会失败",
+                    f"先把容器 PUID/PGID 改成该目录属主；或 chmod 775 {target}；或 chown 到运行身份",
+                )
             )
     elif os.path.exists(target):
-        report["errors"].append(
-            f"目标路径 {target} 已存在但不是目录：请改成一个目录路径（{identity}）。"
+        report["errors"].append(f"目标路径不是目录：{target}")
+        report["issues"].append(
+            _permission_issue(
+                "target_not_directory",
+                "目标路径不是目录",
+                target,
+                "该路径已经存在，但不是目录，无法作为媒体库的目标目录",
+                "把目标目录改成一个目录路径（或先删掉同名文件再试）",
+            )
         )
     else:
         ancestor = existing_ancestor(target)
         writable, note = _write_probe(ancestor)
         report["probe"] = {"target_ancestor": ancestor, "ok": writable, "note": note}
         if not writable:
-            report["errors"].append(
-                f"目标目录 {target} 尚不存在，应用运行身份（{identity}）也无法在最近的已存在目录 "
-                f"{ancestor} 里创建它（{note}）。"
+            report["errors"].append(f"目标目录无法创建：{target}（上级 {ancestor} 不可写，{note}）")
+            report["issues"].append(
+                _permission_issue(
+                    "target_parent_unwritable",
+                    "目标目录无法创建",
+                    target,
+                    f"目标目录尚不存在，运行身份 {identity} 也无法在最近的已存在目录 "
+                    f"{ancestor} 中创建它（{note}）",
+                    f"先把容器 PUID/PGID 改成 {ancestor} 的属主；或 chmod 775 {ancestor}；"
+                    f"或 chown 到运行身份",
+                )
             )
 
     if report["source_exists"] and _can_read_directory(source):
         sample = find_sample_file(source)
         if sample is not None and not os.access(sample, os.R_OK):
             report["warnings"].append(
-                f"源树抽样文件 {sample} 对应用运行身份（{identity}）不可读："
-                f"该文件建链时会失败（其它文件照旧处理），排查见 FAQ 第 43 问。"
+                f"源树抽样文件不可读：{sample}（运行身份 {identity}）："
+                f"该文件建链时会失败，其它文件照旧处理，排查见 FAQ 第 43 问。"
             )
     report["ok"] = not report["errors"]
     return report

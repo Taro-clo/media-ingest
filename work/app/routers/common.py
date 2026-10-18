@@ -9,8 +9,15 @@ MAX_LIST_LIMIT = 200
 DEFAULT_LIST_LIMIT = 50
 
 
-def bad_request(detail: str) -> HTTPException:
-    """400：参数不合法（文案直接展示给用户，必须是中文）。"""
+def bad_request(detail: str | dict) -> HTTPException:
+    """400：参数不合法（文案直接展示给用户，必须是中文）。
+
+    ``detail`` 允许两种形态：
+
+    - ``str``：一行中文，WebUI 直接 toast（大多数参数校验）；
+    - ``dict``：结构化错误（如 ``{"code": "permission_precheck", ...}``），
+      给需要弹窗展示明细的调用方用；``message`` 字段必须存在，作为兜底短文案。
+    """
     return HTTPException(status_code=400, detail=detail)
 
 

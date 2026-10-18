@@ -1146,20 +1146,31 @@ def test_library_create_still_allows_a_missing_source_but_validate_reports_it(
     assert body["permissions"]["source_exists"] is False, body["permissions"]
     identity = body["permissions"]["identity"]
     assert "uid=" in identity and "gid=" in identity, body["permissions"]
+    kinds = {issue["kind"] for issue in body["permissions"]["issues"]}
+    assert "source_missing" in kinds, body["permissions"]["issues"]
 
 
 def test_library_create_and_update_surface_permission_errors(
     api_client, api_login, source_dir, target_dir, monkeypatch
 ):
-    """权限不可读/不可写时，建库和改库都立即 400；改库失败不能落库。"""
+    """权限不可读/不可写时，建库和改库都立即 400（结构化 detail，带原因与处理）；改库失败不能落库。"""
     api_login(api_client)
     from app import paths as paths_module
 
     fake_report = {
         "ok": False,
         "identity": "uid=1000, gid=999, 附加组=[999]",
-        "errors": ["源目录 /downloads/Bangumi 对应用运行身份（uid=1000, gid=999, 附加组=[999]）不可读或不可进入"],
+        "errors": ["源目录不可读：/downloads/Bangumi"],
         "warnings": [],
+        "issues": [
+            {
+                "kind": "source_unreadable",
+                "label": "源目录不可读",
+                "path": "/downloads/Bangumi",
+                "cause": "运行身份 uid=1000, gid=999, 附加组=[999] 对该目录没有读/进入权限",
+                "fix": "先把容器 PUID/PGID 改成该目录属主；或 chmod 755 /downloads/Bangumi",
+            }
+        ],
         "source_exists": True,
         "target_exists": True,
         "probe": None,
@@ -1178,7 +1189,15 @@ def test_library_create_and_update_surface_permission_errors(
     )
     assert rejected.status_code == 400, rejected.text
     detail = rejected.json()["detail"]
-    assert "不可读" in detail and "uid=1000" in detail and "43" in detail, detail
+    assert detail["code"] == "permission_precheck", detail
+    assert detail["title"] == "保存失败", detail
+    assert "源目录不可读" in detail["message"], detail
+    assert detail["identity"] == "uid=1000, gid=999, 附加组=[999]", detail
+    issue = detail["issues"][0]
+    assert issue["kind"] == "source_unreadable", issue
+    assert issue["path"] == "/downloads/Bangumi", issue
+    assert "PUID/PGID" in issue["fix"], issue
+    assert "43" in detail["hint"], detail
     assert api_client.get("/api/libraries").json()["total"] == 0
 
     monkeypatch.undo()
@@ -1189,7 +1208,7 @@ def test_library_create_and_update_surface_permission_errors(
         json={**library, "name": "改路径被拦"},
     )
     assert updated.status_code == 400, updated.text
-    assert "不可读" in updated.json()["detail"]
+    assert updated.json()["detail"]["code"] == "permission_precheck", updated.text
     assert api_client.get(f"/api/libraries/{library['id']}").json()["name"] == library["name"]
 
 

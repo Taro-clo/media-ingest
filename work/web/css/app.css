@@ -1116,6 +1116,25 @@ table.kv-table th { width: 34%; }
 .confirm-text { font-size: var(--fs-14); }
 .confirm-detail { font-size: var(--fs-12); }
 
+/* 权限预检失败弹窗：每条问题 = 标题（类型+路径）+ 原因 + 处理 */
+.perm-dialog { display: flex; flex-direction: column; gap: 12px; }
+.perm-identity { margin: 0; color: var(--text-2); font-size: var(--fs-12); }
+.perm-issue {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+.perm-issue-title { font-weight: 600; font-size: var(--fs-14); word-break: break-all; }
+.perm-line { margin: 6px 0 0; font-size: var(--fs-13); line-height: 1.55; word-break: break-word; }
+.perm-k {
+  display: inline-block;
+  min-width: 2.5em;
+  margin-right: 6px;
+  color: var(--text-2);
+}
+.perm-hint { margin: 0; color: var(--text-2); font-size: var(--fs-12); }
+
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes modal-in {
   from { opacity: 0; transform: translateY(8px) scale(0.985); }

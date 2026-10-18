@@ -221,10 +221,14 @@ CREATE UNIQUE INDEX idx_link_records_library_folder ON link_records(library_id, 
    `?probe=`（默认 `true`）控制是否做 **link 实证探针**；`same_filesystem` 是 `bool | None`。落点：`false`
    （**已证实**建不出）⇒ `ok=false` + `errors[]`；`null` ⇒ **只**进 `warnings[]`；`true` 但仅据 mount ID /
    `st_dev` 预筛 ⇒ 也进 `warnings[]`。故 **`warnings` 非空 ≠ 有问题**。`permissions` 是**权限预检**（以运行身份
-   实测源可读、目标/最近已存在祖先可写），**不受 `?probe=` 控制**，`ok=false` 时其 `errors` 并入外层 `errors[]`。
+   实测源可读、目标/最近已存在祖先可写），**不受 `?probe=` 控制**，形状
+   `{ok, identity, errors, warnings, issues, source_exists, target_exists, probe}`；`issues[]` 每条
+   `{kind, label, path, cause, fix}`（WebUI 明细弹窗用，`fix` 第一条是调整 PUID/PGID）；`ok=false` 时其短文案
+   `errors` 并入外层 `errors[]`。
    `POST /api/libraries` / `PUT /api/libraries/{id}` 在写库前调用 `check_cross_mounts()` + `check_same_mount()`
-   （不同挂载 ⇒ `400`）+ `_permission_precheck()`（权限类硬错 ⇒ `400`，源目录尚不存在不算错）；
-   `/run` 时判据为 `false` 也只写 `warnings[]` 并继续尝试。
+   （不同挂载 ⇒ `400`）+ `_permission_precheck()`（权限类硬错 ⇒ `400`，`detail` 是
+   `{code: "permission_precheck", title, message, identity, issues[], hint}` 结构化对象；
+   源目录尚不存在不算错）；`/run` 时判据为 `false` 也只写 `warnings[]` 并继续尝试。
 9. **`/api/hooks/*` 的参数只从 URL 查询串或 urlencoded 表单体读取，JSON 请求体被静默忽略**；
    **查询串优先级高于表单体**。用 `-H 'Content-Type: application/json' -d '{…}'` 会得到 `torrent.name`
    为空、命中 0 个库 —— 最难查的静默失败，文档与排障必须点名。

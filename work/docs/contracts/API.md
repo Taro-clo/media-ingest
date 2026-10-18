@@ -405,13 +405,22 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 {"detail": "目标目录 /vol1/1000/Download/qbittorrent/Bangumi/lib 位于源目录 /vol1/1000/Download/qbittorrent/Bangumi 之内，不允许互相包含。"}
 ```
 
-`400`（权限预检不过）—— 保存前以**应用自己的运行身份**实测读源、写目标，必然失败的配置直接拦下（不依赖用户点「预检」）：
+`400`（权限预检不过）—— 保存前以**应用自己的运行身份**实测读源、写目标，必然失败的配置直接拦下（不依赖用户点「预检」）。此时 `detail` 是**结构化对象**（WebUI 用它弹「保存失败」明细窗，必须点「确定」关闭）：
 
 ```json
-{"detail": "源目录 /vol1/1000/Download/qbittorrent/Bangumi 对应用运行身份（uid=1000, gid=999, 附加组=[0, 999]）不可读或不可进入：回调任务会报 Permission denied。 当前运行身份：uid=1000, gid=999, 附加组=[0, 999]。排查方法见「常见问题」第 43 问：用应用身份实测源目录可读、目标目录可写。"}
+{"detail": {"code": "permission_precheck", "title": "保存失败",
+  "message": "源目录不可读：/vol1/1000/Download/qbittorrent/Bangumi",
+  "identity": "uid=1000, gid=999, 附加组=[0, 999]",
+  "issues": [{"kind": "source_unreadable", "label": "源目录不可读",
+    "path": "/vol1/1000/Download/qbittorrent/Bangumi",
+    "cause": "运行身份 uid=1000, gid=999, 附加组=[0, 999] 对该目录没有读/进入权限，建链时会报 Permission denied",
+    "fix": "先把容器 PUID/PGID 改成该目录属主；或 chmod 755 …；或 chown 到运行身份"}],
+  "hint": "按上面的「处理」改完再保存；排查方法见「常见问题」第 43 问。"}}
 ```
 
-多个错因用 `；` 连接；目标目录可写性用真实的临时文件探测（能识破只读挂载和 ACL），探针文件写完即删。
+`issues[]` 每条固定 `{kind, label, path, cause, fix}`；`fix` 的**第一条**永远是「调整容器 PUID/PGID」（绝大多数部署里真正的根因），其后才是 `chmod/chown` 之类的补救。`kind` 取值：`source_unreadable` / `target_unwritable` / `target_parent_unwritable` / `target_not_directory`。目标目录可写性用真实的临时文件探测（能识破只读挂载和 ACL），探针文件写完即删。
+
+> 其它参数类 `400` 仍是**字符串** `detail`（如「媒体库名称不能为空。」），前端按普通 toast 处理。
 
 > **源目录还不存在不算错**：「先建库、后有第一次下载」是正常流程，旧行为保持不变——这种情况**允许建库**，「预检」（§3.8）会把 `源目录 … 不存在` 放进 `errors[]` 并给出 `permissions.source_exists=false`。只有权限类硬错（源不可读、目标/祖先不可写、目标路径是文件）才会在这时 `400`。
 
@@ -475,7 +484,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 > - **`errors[]`（同时 `ok=false`）**：① 源与目标相同或互相包含；② **源目录不存在或不是目录**；③ `same_filesystem is false`（此时**同一条判据文案进 `errors[]`**）；④ `processor_ok is false`（处理器已不存在）；⑤ **权限预检不过**（源目录对运行身份不可读/不可进入、目标目录或最近已存在祖先不可写、目标路径是文件——文案见 §3.4）。
 > - **只 `warnings[]`（`ok` 仍为 `true`）**：① 目标目录当前不存在（跑任务时由建链阶段 `os.makedirs` 建）；② `same_filesystem is null` ⇒ `无法判定源/目标之间能否创建硬链接：` + 判据文案；③ `same_filesystem is true` 且判据文案非空（仅据挂载 ID / `st_dev` 的**未实证**结论）；④ 源树抽样文件对运行身份不可读（个别文件建链会失败，其它照旧处理）。
 > - **`probe`**：只有 `?probe=true`（默认）时才非 `null`，形状 `{ok, note}`，`ok` 与 `same_filesystem` 同为三态 `bool | null`。
-> - **`permissions`**：权限预检结果，形状 `{ok, identity, errors, warnings, source_exists, target_exists, probe}`；`probe` 是 `{target 或 target_ancestor, ok, note}`（真实写探针）。`ok=false` 时同一批 `errors` 也会并入外层 `errors[]`。
+> - **`permissions`**：权限预检结果，形状 `{ok, identity, errors, warnings, issues, source_exists, target_exists, probe}`；`probe` 是 `{target 或 target_ancestor, ok, note}`（真实写探针）。`issues[]` 每条 `{kind, label, path, cause, fix}`（`kind` 取值同 §3.4），`ok=false` 时同一批**短文案** `errors` 也会并入外层 `errors[]`。
 > - **建库/改库会因跨挂载或权限被拦**：`POST /api/libraries` 与 `PUT /api/libraries/{id}` 在写库前调用 `paths.check_same_mount()` 与 `paths.probe_media_access()`，不同挂载 / 不可读源 / 不可写目标 ⇒ `400`。预检（§3.8）与运行期 `warnings[]` 仍保留同族判据。
 
 > 📌 **判据文案**（`probe.note` / `errors[]` / `warnings[]` 里的同一族文案）—— 下面 `{}` 是插值，其余照抄；测试与前端可按这些前缀匹配：
@@ -511,6 +520,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
     "identity": "uid=1000, gid=999, 附加组=[0, 999]",
     "errors": [],
     "warnings": [],
+    "issues": [],
     "source_exists": true,
     "target_exists": true,
     "probe": {"target": "/vol1/1000/Library/Bangumi", "ok": true, "note": null}
@@ -558,7 +568,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `source_exists` / `target_exists` | 源目录 / 目标目录**本身**是否存在 |
 | `same_filesystem` | 源与目标能否建硬链接，**三态**：`true` = 可建（已实证，或仅 mount ID / `st_dev` 预筛通过 —— 后者会在 `warnings[]` 注明「未实证」）；`false` = **明确不行**；**`null` = 判不了**（不等于失败，也不是 `false`） |
 | `probe` | 实证探针结果 `{ok, note}`，或 `null`（`?probe=false` 时）。`ok` 是**探针自己的**结论，可能与 `same_filesystem` 不同（探针 `null` 而挂载 ID 判成 `false` 时，`same_filesystem` 是 `false` 而 `probe.ok` 仍是 `null`）。`note` 是逐字中文文案，不是靠 `stat` 推断的话术 |
-| `permissions` | 权限预检 `{ok, identity, errors, warnings, source_exists, target_exists, probe}`。以**当前进程身份**实测：源目录可列出可进入（`os.access(R_OK\|X_OK)`，识破不了自定义权限层时仍以实测为准）、目标目录/最近已存在祖先**真写一个临时文件**再删（能识破只读挂载与 ACL）。`identity` 是运行身份文案（容器内即 PUID/PGID 生效后的 uid/gid/附加组）。`probe` 为 `{target 或 target_ancestor, ok, note}` |
+| `permissions` | 权限预检 `{ok, identity, errors, warnings, issues, source_exists, target_exists, probe}`。以**当前进程身份**实测：源目录可列出可进入（`os.access(R_OK\|X_OK)`，识破不了自定义权限层时仍以实测为准）、目标目录/最近已存在祖先**真写一个临时文件**再删（能识破只读挂载与 ACL）。`identity` 是运行身份文案（容器内即 PUID/PGID 生效后的 uid/gid/附加组）。`issues[]` 每条 `{kind, label, path, cause, fix}`，供 WebUI 明细弹窗使用（`fix` 第一条是调整 PUID/PGID）。`probe` 为 `{target 或 target_ancestor, ok, note}` |
 | `errors` / `warnings` | 中文可读字符串数组；`errors` 非空 = 预检不通过。落点规则见上面的 📌 |
 | `source_folders` | 源目录下的一级文件夹数量；源目录不存在时为 `null` |
 | `processor_ok` / `processor_name` / `processor_kind` | 处理器是否还存在（`spec is not None`）/ 处理器显示名 / **处理器的 `kind` 取值**（`rename` 或 `hardlink_only`，就是规格里的 `spec["kind"]`，**不是** `builtin`/`custom` —— 是否内置看 `GET /api/processors` 的 `builtin` 字段）。**`processor_ok: false` ⇒ `ok=false`** 且 `errors[]` 里写「处理器 X 不存在（可能已被删除）。请先到「处理器」页重建，或把本库改到其它处理器。」 |

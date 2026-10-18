@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### 变更：权限预检失败改为「保存失败」明细弹窗（原因 + 处理，PUID/PGID 优先）
+
+**场景**：源目录不可读、目标目录不可写时，后端原本返回一段很长的 400 文案（同一条消息里两次运行身份、
+两层「失败」、没有具体动作），前端只能 toast 一下，用户看不出"该改什么"。
+
+- **行为**：`POST /api/libraries` 与 `PUT /api/libraries/{id}` 的权限预检失败时，`detail` 改为**结构化对象**
+  `{code: "permission_precheck", title: "保存失败", message, identity, issues[], hint}`；`issues[]` 每条
+  `{kind, label, path, cause, fix}`（`kind`：`source_unreadable` / `target_unwritable` /
+  `target_parent_unwritable` / `target_not_directory`）。`fix` 的**第一条固定是「调整容器 PUID/PGID」**
+  （绝大多数部署的真正根因），其后才是 `chmod/chown` 补救。其它参数类 400 仍是字符串 `detail`。
+- **WebUI**：保存被权限拦下时弹**「保存失败」明细窗**——顶部一行运行身份，下面每条问题三行
+  （`原因` / `处理`），**必须点「确定」才关闭**（禁用遮罩点击、Esc 与右上角 X），且不写入数据库；
+  不再只弹一条 toast。
+- **预检接口**：`permissions` 新增 `issues[]`（结构同 `400.detail.issues`），`errors[]` 改为一行短文案
+  （如 `源目录不可读：/a`），供「预检」页与日志使用。
+- **测试**：`tests/test_paths.py` 新增 1 条（`issues` 形状 / `label` / `path` / `cause` 含 Permission denied /
+  `fix` 里 PUID/PGID 排在 chmod 之前），并给既有用例补 `source_missing` 断言；
+  `tests/test_api_smoke.py` 的权限用例改为断言结构化 `detail`（code/title/identity/issues/hint）与改库不落库；
+  `tests/test_hardlink_precheck.py` 的 `permissions` 形状断言加 `issues`。
+- **文档**：`docs/contracts/API.md` §3.4/§3.8/§3.8 字段表、`docs/contracts/ARCHITECTURE.md` §5.0、
+  `docs/guides/FAQ.md` 第 43 问、`docs/guides/USER_GUIDE.md` 建库页、`docs/meta/TEST-MAP.md` 同步。
+
 ### 新增：建库/改库时的权限预检（不依赖「预检」按钮）
 
 **场景**：qBittorrent 写出的文件属主与容器运行身份（`PUID/PGID`）对不上时，硬链接会 `Permission denied`

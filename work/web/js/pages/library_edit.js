@@ -28,7 +28,7 @@ import {
 } from '../processors_util.js';
 import {
   html, raw, icon, esc, toast, field, textInput, selectInput, switchControl,
-  createChipInput, setFieldError, clearFieldErrors, loadingCard, errorState, confirmDialog
+  createChipInput, setFieldError, clearFieldErrors, loadingCard, errorState, confirmDialog, modal
 } from '../ui.js';
 
 /** 类型只是展示/统计用的自由标签，datalist 只做建议。 */
@@ -801,6 +801,49 @@ export async function render(container, params) {
   }
 
   // ---------------- 保存 ----------------
+  /** 权限预检失败时的明细弹窗：必须点「确定」才关闭（不能点遮罩/Esc/右上角 X）。 */
+  function showPermissionDialog(detail) {
+    const body = document.createElement('div');
+    body.className = 'perm-dialog';
+    const identity = document.createElement('p');
+    identity.className = 'perm-identity';
+    identity.textContent = t('le.perm.identity', { identity: detail.identity || '' });
+    body.appendChild(identity);
+    (detail.issues || []).forEach(function (issue) {
+      const box = document.createElement('div');
+      box.className = 'perm-issue';
+      const title = document.createElement('div');
+      title.className = 'perm-issue-title';
+      title.textContent = issue.label + '：' + issue.path;
+      box.appendChild(title);
+      const cause = document.createElement('p');
+      cause.className = 'perm-line';
+      cause.innerHTML = '<span class="perm-k">' + esc(t('le.perm.cause')) + '</span>' +
+        esc(issue.cause || '');
+      const fix = document.createElement('p');
+      fix.className = 'perm-line';
+      fix.innerHTML = '<span class="perm-k">' + esc(t('le.perm.fix')) + '</span>' +
+        esc(issue.fix || '');
+      box.appendChild(cause);
+      box.appendChild(fix);
+      body.appendChild(box);
+    });
+    const hint = document.createElement('p');
+    hint.className = 'perm-hint';
+    hint.textContent = detail.hint || t('le.perm.hint');
+    body.appendChild(hint);
+    const dialog = modal({
+      title: detail.title || t('le.perm.title'),
+      width: 'md',
+      body: body,
+      closeOnBackdrop: false,
+      closeOnEscape: false,
+      actions: [{ label: t('common.ok'), kind: 'primary' }]
+    });
+    const closeX = dialog.root.querySelector('.modal-x');
+    if (closeX) closeX.remove();
+  }
+
   const saveBtn = container.querySelector('#le-save');
   saveBtn.addEventListener('click', async function () {
     const payload = collect();
@@ -845,7 +888,10 @@ export async function render(container, params) {
         }
       }
     } catch (err) {
-      if (!applyServerErrors(err)) {
+      const detail = err && err.data && err.data.detail;
+      if (detail && typeof detail === 'object' && detail.code === 'permission_precheck') {
+        showPermissionDialog(detail);
+      } else if (!applyServerErrors(err)) {
         toast(t('le.err.save_failed', { msg: err && err.message ? err.message : t('err.unknown') }), 'error');
       }
     } finally {

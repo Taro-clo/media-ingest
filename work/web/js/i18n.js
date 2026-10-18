@@ -370,6 +370,11 @@ const zh = {
   'le.err.save_failed': '保存失败：{msg}',
   'le.saved': '规则已保存',
   'le.created': '规则已创建',
+  'le.perm.title': '保存失败',
+  'le.perm.identity': '运行身份：{identity}',
+  'le.perm.cause': '原因',
+  'le.perm.fix': '处理',
+  'le.perm.hint': '按上面的「处理」改完再保存；排查方法见「常见问题」第 43 问。',
 
   // ---------- 任务列表 ----------
   'tasks.title': '任务',

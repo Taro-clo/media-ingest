@@ -847,6 +847,7 @@ def test_probe_media_access_rejects_a_missing_source(tmp_path, paths_mod):
         for message in report["errors"]
     )
     assert report["identity"], "报错文案要带上当前运行身份，方便用户对照 PUID/PGID"
+    assert report["issues"][0]["kind"] == "source_missing", report["issues"]
 
 
 def test_probe_media_access_accepts_a_normal_library_without_leaving_probe_files(tmp_path, paths_mod):
@@ -907,6 +908,37 @@ def test_probe_media_access_rejects_a_target_that_is_a_file(tmp_path, paths_mod)
     report = paths_mod.probe_media_access(str(source), str(target))
     assert report["ok"] is False
     assert any("不是目录" in message for message in report["errors"])
+
+
+def test_probe_media_access_returns_structured_issues_with_actionable_fix(
+    tmp_path, paths_mod, monkeypatch
+):
+    """保存失败弹窗用的 issues：每条都有 label/path/cause/fix，且 PUID/PGID 是第一条办法。"""
+    source = tmp_path / "downloads"
+    source.mkdir()
+    target = tmp_path / "library"
+    target.mkdir()
+
+    monkeypatch.setattr(paths_mod, "_can_read_directory", lambda _path: False)
+    report = paths_mod.probe_media_access(str(source), str(target))
+    issue = report["issues"][0]
+    assert set(issue) == {"kind", "label", "path", "cause", "fix"}, issue
+    assert issue["kind"] == "source_unreadable", issue
+    assert issue["label"] == "源目录不可读", issue
+    assert issue["path"] == paths_mod.normalize(str(source)), issue
+    assert "PUID/PGID" in issue["fix"], issue
+    assert issue["fix"].index("PUID/PGID") < issue["fix"].index("chmod"), issue
+    assert "Permission denied" in issue["cause"], issue
+
+    monkeypatch.setattr(paths_mod, "_can_read_directory", lambda _path: True)
+    monkeypatch.setattr(
+        paths_mod, "_write_probe", lambda _path: (False, "Read-only file system（errno=30）")
+    )
+    report = paths_mod.probe_media_access(str(source), str(target))
+    issue = report["issues"][0]
+    assert issue["kind"] == "target_unwritable", issue
+    assert issue["label"] == "目标目录不可写", issue
+    assert "PUID/PGID" in issue["fix"], issue
 
 
 def test_probe_media_access_warns_about_an_unreadable_sampled_source_file(

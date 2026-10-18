@@ -508,6 +508,7 @@ def test_validate_response_shape_is_flat_and_never_waits_for_combination_ok(
         "identity",
         "errors",
         "warnings",
+        "issues",
         "source_exists",
         "target_exists",
         "probe",
