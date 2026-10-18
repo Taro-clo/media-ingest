@@ -82,9 +82,9 @@
 - **行为（重复提示）**：`api.createLibrary` / `api.updateLibrary` 增加 `opts` 透传；建库、改库保存
   与列表里的启停开关都传 `{ silent: true }`，由页面统一给一条提示（`保存失败：…` / `lib.toggle_failed`），
   `apiFetch` 不再抢先弹「操作失败」。`422` 字段级错误仍走原有字段标红逻辑，不受影响。
-- **行为（耗时）**：任务列表与任务详情「元信息」里的耗时优先取 `result.duration_ms`（毫秒精度），
-  只有没有执行结果（未跑完/旧记录）时才退回 `started_at → finished_at` —— 那两个时间戳只到秒，
-  短任务必然算成 `0 ms`。
+- **行为（耗时）**：任务列表、仪表盘「近期任务」与任务详情「元信息」里的耗时统一优先取
+  `result.duration_ms`（毫秒精度，抽成 `ui.taskDuration()`），只有没有执行结果（未跑完/旧记录）时
+  才退回 `started_at → finished_at` —— 那两个时间戳只到秒，短任务必然算成 `0 ms`。
 - **影响面**：仅 WebUI；`duration_ms` 后端原本就有，无 API/DB 变更。
 
 ## [1.0.0] — 2026-10-16

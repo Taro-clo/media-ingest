@@ -163,6 +163,19 @@ export function durationBetween(startIso, endIso) {
   return fmtDuration(end - start);
 }
 
+/**
+ * 任务里展示的「耗时」：优先用执行结果里的毫秒数（`result.duration_ms`，毫秒精度），
+ * 只有没有结果（未跑完 / 旧记录）时才退回 started_at → finished_at ——
+ * 那两个时间戳只到秒，短任务会算成 `0 ms`，与详情页的 `17 ms` 对不上。
+ */
+export function taskDuration(task) {
+  const r = task && task.result;
+  if (r && typeof r.duration_ms === 'number' && isFinite(r.duration_ms) && r.duration_ms >= 0) {
+    return fmtDuration(r.duration_ms);
+  }
+  return durationBetween(task && task.started_at, task && task.finished_at);
+}
+
 export function fmtCount(value) {
   const n = Number(value);
   return isFinite(n) ? String(n) : '0';

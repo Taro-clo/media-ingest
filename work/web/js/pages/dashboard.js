@@ -14,7 +14,7 @@ import * as router from '../router.js';
 import { setLibraries } from '../store.js';
 import {
   html, raw, esc, icon, toast, badge, statusBadge, kindLabel, triggerLabel,
-  fmtDateTime, durationBetween, skeletonCards, skeletonTable, emptyState, errorState, modal, debounce
+  fmtDateTime, taskDuration, skeletonCards, skeletonTable, emptyState, errorState, modal, debounce
 } from '../ui.js';
 
 const POLL_MS = 8000;
@@ -313,7 +313,7 @@ function recentRow(task) {
     <td data-label="${t('tasks.col.trigger')}">${triggerLabel(task.trigger)}</td>
     <td data-label="${t('tasks.col.status')}">${raw(statusBadge(task.status))}</td>
     <td data-label="${t('tasks.col.created')}" class="muted">${fmtDateTime(task.created_at)}</td>
-    <td data-label="${t('tasks.col.duration')}" class="muted">${durationBetween(task.started_at, task.finished_at)}</td>
+    <td data-label="${t('tasks.col.duration')}" class="muted">${taskDuration(task)}</td>
   </tr>`;
 }
 
