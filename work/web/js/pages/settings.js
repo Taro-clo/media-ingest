@@ -17,7 +17,8 @@
 
 import { t } from '../i18n.js';
 import * as api from '../api.js';
-import { setSettings } from '../store.js';
+import { setSettings, clearUser } from '../store.js';
+import { navigate } from '../router.js';
 import { mountConfigStatus } from '../config_sync.js';
 import {
   html, raw, esc, icon, toast, field, textInput, numberInput, selectInput, textareaInput,
@@ -1010,9 +1011,20 @@ export async function render(container) {
         if (e) e.textContent = t(key);
       }
     }
+    function clearFail() {
+      ['set-pw-old', 'set-pw-new', 'set-pw-confirm'].forEach(function (id) {
+        const box = q('[data-field="' + id + '"]');
+        if (!box) return;
+        box.classList.remove('field-invalid');
+        const e = box.querySelector('.field-error');
+        if (e) e.textContent = '';
+      });
+    }
+    clearFail();
     if (!oldPw.value) return fail('set-pw-old', 'set.pw.err.old_required');
     if (String(newPw.value).length < 8) return fail('set-pw-new', 'set.pw.err.new_short');
     if (newPw.value !== confirmPw.value) return fail('set-pw-confirm', 'set.pw.err.mismatch');
+    if (newPw.value === oldPw.value) return fail('set-pw-new', 'set.pw.err.same');
 
     btn.disabled = true;
     try {
@@ -1021,9 +1033,22 @@ export async function render(container) {
       oldPw.value = '';
       newPw.value = '';
       confirmPw.value = '';
+      clearFail();
+      // 后端 204 时会显式删掉 mlm_session Cookie（routers/auth.py 的注释写明了原因），
+      // 因此这里必须同步清前端登录态并回登录页：否则页面看着还“已登录”，下一次请求却 401。
+      clearUser();
       toast(t('set.pw.ok'), 'success');
+      navigate('#/login', true);
     } catch (err) {
-      /* apiFetch 已 toast */
+      if (!alive) return;
+      // authChangePassword 是 silent 的（错误由本页负责展示）：401 = 当前密码不对，
+      // 直接把话说在「当前密码」字段下面，而不是走「登录已失效」那套跳转提示。
+      if (err && err.status === 401) {
+        fail('set-pw-old', 'set.pw.err.old_wrong');
+        oldPw.focus();
+        return;
+      }
+      toast((err && err.message) || t('err.unknown'), 'error');
     } finally {
       if (btn.isConnected) btn.disabled = false;
     }
@@ -1127,6 +1152,18 @@ export async function render(container) {
 
     const pwBtn = q('#set-pw-submit');
     if (pwBtn) pwBtn.addEventListener('click', changePassword);
+    // 用户重新输入时立刻撤掉上一次的字段红字，避免「改过了还一直红着」。
+    ['set-pw-old', 'set-pw-new', 'set-pw-confirm'].forEach(function (id) {
+      const input = q('#' + id);
+      if (!input) return;
+      input.addEventListener('input', function () {
+        const box = q('[data-field="' + id + '"]');
+        if (!box || !box.classList.contains('field-invalid')) return;
+        box.classList.remove('field-invalid');
+        const e = box.querySelector('.field-error');
+        if (e) e.textContent = '';
+      });
+    });
   }
 
   return function cleanup() {

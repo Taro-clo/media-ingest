@@ -103,6 +103,14 @@ export async function apiFetch(path, opts) {
   }
 
   if (res.status === 401) {
+    // 个别接口用 401 表达「旧密码不对」而不是「会话失效」（目前只有改密码）：
+    // 这类请求不能清用户态、不能弹「登录已失效」，也不走全局跳登录，
+    // 由调用页面自己把 detail（如「当前密码不正确。」）显示在对应输入框下。
+    if (options.resetAuthOn401 === false) {
+      const err = new ApiError(readableDetail(data, 401), 401, data);
+      if (!options.silent) toast(err.message, 'warning');
+      throw err;
+    }
     clearUser();
     if (options.redirectOn401 !== false && unauthorizedHandler) unauthorizedHandler();
     const err = new ApiError(t('err.unauthorized'), 401, readableDetail(data, 401));
@@ -167,7 +175,8 @@ export function authChangePassword(oldPassword, newPassword) {
     method: 'POST',
     body: { old_password: oldPassword, new_password: newPassword },
     silent: true,
-    redirectOn401: false
+    redirectOn401: false,
+    resetAuthOn401: false
   });
 }
 

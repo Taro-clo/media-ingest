@@ -9,6 +9,7 @@
 
 import { t } from './i18n.js';
 import * as api from './api.js';
+import { isLoggedIn } from './store.js';
 import { raw, esc, icon, toast, fmtDateTime, badge } from './ui.js';
 
 const REFRESH_MS = 15000;
@@ -199,7 +200,9 @@ export function startConfigWatch(onState) {
   let timer = null;
 
   async function tick() {
-    if (stopped || document.hidden) return;
+    // 已登出（含改密码成功后的强制登出）时不要继续轮询：否则 /api/config 的 401 会
+    // 触发全局 onUnauthorized，把「登录已失效」的提示反复弹到登录页上。
+    if (stopped || document.hidden || !isLoggedIn()) return;
     try {
       const cfg = await api.getConfig();
       const p = configProblems(cfg);
