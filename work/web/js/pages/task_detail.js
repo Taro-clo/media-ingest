@@ -260,7 +260,12 @@ function metaHtml(task) {
     ['td.meta.created', fmtDateTime(task.created_at)],
     ['td.meta.started', fmtDateTime(task.started_at)],
     ['td.meta.finished', fmtDateTime(task.finished_at)],
-    ['td.meta.duration', durationBetween(task.started_at, task.finished_at)]
+    // 与「执行结果」里的耗时保持一致：优先用毫秒精度的 result.duration_ms
+    //（started_at/finished_at 只到秒，短任务会显示成 0 ms）。
+    ['td.meta.duration', (task.result && typeof task.result.duration_ms === 'number' &&
+      isFinite(task.result.duration_ms) && task.result.duration_ms >= 0)
+      ? fmtDuration(task.result.duration_ms)
+      : durationBetween(task.started_at, task.finished_at)]
   ];
   return '<dl class="kv">' + rows.map(function (row) {
     return '<dt>' + esc(t(row[0])) + '</dt><dd>' + esc(row[1]) + '</dd>';

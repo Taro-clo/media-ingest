@@ -447,7 +447,8 @@ function validateHtml(res) {
 
 async function doToggle(lib, checked, reload) {
   try {
-    await api.updateLibrary(lib.id, Object.assign(toPayload(lib), { enabled: checked }));
+    // silent: 失败文案由这里给（lib.toggle_failed），避免 apiFetch 再弹一条。
+    await api.updateLibrary(lib.id, Object.assign(toPayload(lib), { enabled: checked }), { silent: true });
     toast(t(checked ? 'lib.toggled_on' : 'lib.toggled_off', { name: lib.name }), 'success');
     reload();
   } catch (err) {

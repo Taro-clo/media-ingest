@@ -828,12 +828,14 @@ export async function render(container, params) {
     saveBtn.disabled = true;
     label.textContent = t('common.saving');
     try {
+      // silent: 本页自己负责报错文案（applyServerErrors / 保存失败），
+      // 否则 apiFetch 的「操作失败」会和这里的提示各弹一条。
       if (isEdit) {
-        await api.updateLibrary(idParam, payload);
+        await api.updateLibrary(idParam, payload, { silent: true });
         toast(t('le.saved'), 'success');
         router.reload();
       } else {
-        const created = await api.createLibrary(payload);
+        const created = await api.createLibrary(payload, { silent: true });
         toast(t('le.created'), 'success');
         const newId = created && created.id !== undefined ? created.id : null;
         if (newId !== null) {

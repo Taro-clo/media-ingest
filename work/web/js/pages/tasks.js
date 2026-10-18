@@ -13,12 +13,25 @@ import * as router from '../router.js';
 import { state, setLibraries, getLibrary } from '../store.js';
 import {
   html, raw, icon, esc, statusBadge, kindLabel, triggerLabel, statusLabel,
-  fmtDateTime, durationBetween, skeletonTable, emptyState, errorState, debounce
+  fmtDateTime, fmtDuration, durationBetween, skeletonTable, emptyState, errorState, debounce
 } from '../ui.js';
 
 const STATUSES = ['queued', 'running', 'success', 'failed', 'skipped', 'cancelled'];
 const PAGE_SIZES = [20, 50, 100, 200];
 const POLL_MS = 8000;
+
+/**
+ * 列表里的「耗时」。优先用执行结果里的毫秒数（result.duration_ms，毫秒精度），
+ * 只有在没有结果（未跑完 / 旧记录）时才退回 started_at→finished_at ——
+ * 那两个时间戳只到秒，短任务会算成 0 ms，与详情页的 21 ms 对不上。
+ */
+function taskDuration(task) {
+  const r = task && task.result;
+  if (r && typeof r.duration_ms === 'number' && isFinite(r.duration_ms) && r.duration_ms >= 0) {
+    return fmtDuration(r.duration_ms);
+  }
+  return durationBetween(task && task.started_at, task && task.finished_at);
+}
 
 function statusOptions() {
   const out = [{ value: '', label: t('tasks.filter.all_status') }];
@@ -86,7 +99,7 @@ function rowHtml(task) {
     <td data-label="${t('tasks.col.trigger')}">${triggerLabel(task.trigger)}</td>
     <td data-label="${t('tasks.col.status')}">${raw(statusBadge(task.status))}</td>
     <td data-label="${t('tasks.col.created')}" class="muted">${fmtDateTime(task.created_at)}</td>
-    <td data-label="${t('tasks.col.duration')}" class="muted">${durationBetween(task.started_at, task.finished_at)}</td>
+    <td data-label="${t('tasks.col.duration')}" class="muted">${taskDuration(task)}</td>
     <td data-label="${t('tasks.col.actions')}">
       <a class="btn btn-ghost btn-sm" href="#/tasks/${encodeURIComponent(String(id))}">
         ${raw(icon('file', 13))}<span>${t('tasks.detail')}</span>

@@ -187,16 +187,21 @@ export async function listLibraries() {
   return readEnvelope(data);
 }
 
-export function createLibrary(payload) {
-  return apiFetch('/api/libraries', { method: 'POST', body: payload });
+/**
+ * opts 透传给 apiFetch。页面自己负责报错文案时传 { silent: true }，
+ * 避免「apiFetch 的 操作失败」+「页面的 保存失败」各弹一条。
+ */
+export function createLibrary(payload, opts) {
+  return apiFetch('/api/libraries', Object.assign({ method: 'POST', body: payload }, opts));
 }
 
 export function getLibrary(id) {
   return apiFetch('/api/libraries/' + encodeURIComponent(String(id)));
 }
 
-export function updateLibrary(id, payload) {
-  return apiFetch('/api/libraries/' + encodeURIComponent(String(id)), { method: 'PUT', body: payload });
+export function updateLibrary(id, payload, opts) {
+  return apiFetch('/api/libraries/' + encodeURIComponent(String(id)),
+    Object.assign({ method: 'PUT', body: payload }, opts));
 }
 
 /** 二次确认由界面负责；confirm=true 由本函数附加。 */
