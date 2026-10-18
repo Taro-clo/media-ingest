@@ -456,7 +456,7 @@ def test_system_info_exposes_the_same_three_state_verdict_without_probing(
 def test_validate_response_shape_is_flat_and_never_waits_for_combination_ok(
     api_client, api_login, source_dir, target_dir
 ):
-    """``validate`` 的响应是**扁平 21 字段**：没有 v1 的 ``checks[]``，也没有幽灵字段。
+    """``validate`` 的响应是**扁平 22 字段**：没有 v1 的 ``checks[]``，也没有幽灵字段。
 
     ``combination_ok`` 在 v1 文档里出现过、**在 v2 从未实现**：处理器是否存在由
     ``processor_ok`` 表达（``app/routers/libraries.py:492``、``docs/contracts/API.md`` §3.8）。
@@ -489,8 +489,9 @@ def test_validate_response_shape_is_flat_and_never_waits_for_combination_ok(
         "source_folders",
         "target_dir_exists",
         "same_filesystem_paths",
+        "permissions",
     }
-    assert len(expected) == 21
+    assert len(expected) == 22
     assert set(report) == expected, sorted(set(report) ^ expected)
     assert "checks" not in report, report
     assert "combination_ok" not in report, "v1 幽灵字段：v2 由 processor_ok 表达"
@@ -501,6 +502,19 @@ def test_validate_response_shape_is_flat_and_never_waits_for_combination_ok(
     assert report["type"] == "Bangumi", report
     assert report["target_dir_exists"] is True, report
     assert set(report["same_filesystem_paths"]) == {"source_path", "target_path"}, report
+    permissions = report["permissions"]
+    assert set(permissions) == {
+        "ok",
+        "identity",
+        "errors",
+        "warnings",
+        "source_exists",
+        "target_exists",
+        "probe",
+    }, sorted(permissions)
+    assert permissions["ok"] is True, permissions
+    assert "uid=" in permissions["identity"], permissions
+    assert permissions["source_exists"] is True and permissions["target_exists"] is True, permissions
 
 
 def test_validate_error_and_warning_landing_is_frozen(

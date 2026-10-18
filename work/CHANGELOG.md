@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### 新增：建库/改库时的权限预检（不依赖「预检」按钮）
+
+**场景**：qBittorrent 写出的文件属主与容器运行身份（`PUID/PGID`）对不上时，硬链接会 `Permission denied`
+（`fs.protected_hardlinks=1` 要求对源文件可读**且**可写）。此前只有用户主动点「预检」或等第一次任务失败
+才会发现，而多数人不会点按钮。
+
+- **行为**：`POST /api/libraries` 与 `PUT /api/libraries/{id}` 在写库前，以**应用自己的运行身份**实测：
+  源目录可列出可进入（R+X）；目标目录已存在则**真写一个临时文件再删**（`os.open(O_CREAT|O_EXCL)`，
+  能识破只读挂载与 ACL），目标目录不存在则检查最近已存在的祖先可写；源树抽样文件不可读只记 `warnings`。
+  **源目录还不存在不算错**（「先建库、后有第一次下载」是正常流程，旧行为不变，这种情况交给「预检」提示）；
+  其余权限类 `errors` ⇒ `400`，文案带当前 uid/gid/附加组并指向 FAQ 第 43 问；**不写数据库**。
+- **预检接口**：`POST /api/libraries/{id}/validate` 响应新增 `permissions` 字段
+  （`{ok, identity, errors, warnings, source_exists, target_exists, probe}`），其 `errors` 同时并入外层
+  `errors[]`、`ok`；「预检」按钮额外做的仍是 `os.link` 实证与完整诊断。
+- **安全**：探针只写**目标目录**（或目标最近已存在祖先），文件名带 `.mlm_probe_` 前缀且写完即删，
+  **绝不写源目录**；`tests/test_no_source_mutation.py` 的破坏性写入点白名单同步登记 `paths._write_probe`。
+- **测试**：`tests/test_paths.py` 7 个单元用例（源缺失/源不可读/目标不可写/目标尚不存在查祖先/
+  目标路径是文件/抽样文件不可读/正常库不留探针残留）；`tests/test_api_smoke.py` 3 个集成用例
+  （建库被权限拦 400、改库被拦且不落库、validate 报告 `permissions`）。
+
 ### 新增：qBittorrent 回调路径映射（设置项 `downloader_path_map`）
 
 **场景**：qBittorrent 容器把下载目录挂成 `/downloads`，而本应用按单挂载契约使用与宿主同构的容器路径

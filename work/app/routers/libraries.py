@@ -186,6 +186,28 @@ def _export_config() -> None:
         logger.warning("配置导出失败（数据库已更新）：%s", exc)
 
 
+def _permission_precheck(source_dir: str, target_dir: str) -> None:
+    """建库/改库保存时，以**应用自己的运行身份**实测读源、写目标。
+
+    不依赖 WebUI 的「预检」按钮（用户很可能不会点）：保存那一刻就拦下必然失败的配置，
+    并把当前运行身份和排查入口写进 400 文案，免得等到第一次跑任务才看到 Permission denied。
+
+    注意：**源目录还不存在不算错**——「先建库、后有第一次下载」是正常流程（旧行为如此），
+    这种情况留给「预检」提示；这里只拦权限类硬错（源不可读、目标/祖先不可写、目标路径是文件）。
+    """
+    report = paths.probe_media_access(source_dir, target_dir)
+    errors = report["errors"]
+    if not report["source_exists"]:
+        errors = [message for message in errors if not message.startswith("源目录")]
+    if not errors:
+        return
+    raise bad_request(
+        "；".join(errors)
+        + f" 当前运行身份：{report['identity']}。"
+        + "排查方法见「常见问题」第 43 问：用应用身份实测源目录可读、目标目录可写。"
+    )
+
+
 def _validate_paths(source_dir: str, target_dir: str, *, probe: bool) -> dict:
     """路径四连检：相同/包含 -> 硬链接可用性级联 ->（可选）os.link 实证。
 
@@ -225,6 +247,17 @@ def _validate_paths(source_dir: str, target_dir: str, *, probe: bool) -> dict:
         result["warnings"].append(
             f"目标目录 {target_dir} 目前不存在：运行任务时由建链阶段自动创建。"
         )
+
+    # 权限预检（按运行身份实测）：必然失败的情况直接进 errors，个别不可读文件只进 warnings。
+    # 上面对「源目录不存在」已给了更具体的文案，这里不重复。
+    permission = paths.probe_media_access(source_dir, target_dir)
+    result["permissions"] = permission
+    for message in permission["errors"]:
+        if not result["source_exists"] and message.startswith("源目录"):
+            continue
+        result["ok"] = False
+        result["errors"].append(message)
+    result["warnings"].extend(permission["warnings"])
 
     # 级联判据：实证探针（主判据）→ 挂载 ID → st_dev。
     # `same_filesystem` 是三态：True（可用；可能只是"未实证"的预筛结论）/ False（明确不可用）/
@@ -317,6 +350,7 @@ def create_library(
     same_mount, mount_note = paths.check_same_mount(source_dir, target_dir)
     if same_mount is False:
         raise bad_request(mount_note)
+    _permission_precheck(source_dir, target_dir)
 
     moment = now_iso()
     with conn:
@@ -408,6 +442,7 @@ def update_library(
     same_mount, mount_note = paths.check_same_mount(source_dir, target_dir)
     if same_mount is False:
         raise bad_request(mount_note)
+    _permission_precheck(source_dir, target_dir)
 
     with conn:
         conn.execute(

@@ -342,7 +342,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `limit` / `offset` | 服务端实际生效的分页参数（`limit` 会被上限截断） |
 
 > 分页信封是统一约定：`GET /api/libraries` 与 `GET /api/tasks` 都是这个形状，而 `/api/stats/overview.recent` 这类**非分页集合**仍是裸数组。
-> 跨挂载（源与目标不在**同一个挂载**，`link()` 必返 `EXDEV`）在**建库/改库时**直接拦下（`400`，「跨挂载错误：…」）；「预检」（§3.8）另给完整结论；跑任务时不再硬拦（只写 `Task.result.warnings[]`）。原理见 [`docs/contracts/COMPATIBILITY.md`](COMPATIBILITY.md) 的「文件系统兼容性」一节。
+> 跨挂载（源与目标不在**同一个挂载**，`link()` 必返 `EXDEV`）在**建库/改库时**直接拦下（`400`，「跨挂载错误：…」）；**权限不够**同样在写库前拦下（`400`，见 §3.4 / §3.8 的 `permissions`）；「预检」（§3.8）另给完整结论；跑任务时不再硬拦（只写 `Task.result.warnings[]`）。原理见 [`docs/contracts/COMPATIBILITY.md`](COMPATIBILITY.md) 的「文件系统兼容性」一节。
 
 ### 3.4 `POST /api/libraries` — 新建媒体库
 
@@ -405,6 +405,16 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 {"detail": "目标目录 /vol1/1000/Download/qbittorrent/Bangumi/lib 位于源目录 /vol1/1000/Download/qbittorrent/Bangumi 之内，不允许互相包含。"}
 ```
 
+`400`（权限预检不过）—— 保存前以**应用自己的运行身份**实测读源、写目标，必然失败的配置直接拦下（不依赖用户点「预检」）：
+
+```json
+{"detail": "源目录 /vol1/1000/Download/qbittorrent/Bangumi 对应用运行身份（uid=1000, gid=999, 附加组=[0, 999]）不可读或不可进入：回调任务会报 Permission denied。 当前运行身份：uid=1000, gid=999, 附加组=[0, 999]。排查方法见「常见问题」第 43 问：用应用身份实测源目录可读、目标目录可写。"}
+```
+
+多个错因用 `；` 连接；目标目录可写性用真实的临时文件探测（能识破只读挂载和 ACL），探针文件写完即删。
+
+> **源目录还不存在不算错**：「先建库、后有第一次下载」是正常流程，旧行为保持不变——这种情况**允许建库**，「预检」（§3.8）会把 `源目录 … 不存在` 放进 `errors[]` 并给出 `permissions.source_exists=false`。只有权限类硬错（源不可读、目标/祖先不可写、目标路径是文件）才会在这时 `400`。
+
 `400`（名称为空）：`{"detail": "媒体库名称不能为空。"}`
 `400`（源与目标相同）：`{"detail": "源目录与目标目录不能相同。"}`
 `409`（重名）：`{"detail": "已存在同名媒体库「番剧」，请换一个名称。"}`
@@ -424,6 +434,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 - **响应 `200`**：更新后的完整对象
 
 > ⚠️ 这是**整体替换**而不是局部合并：没传的字段会回到默认值。请先 `GET` 拿到当前值，改完再整体 `PUT` 回去。
+> 与 `POST` 一样，写库前会做跨挂载检查**和权限预检**；任何一项不过都会返回 `400`，且**不会写入数据库**。
 
 ### 3.7 `DELETE /api/libraries/{id}?confirm=true` — 删除媒体库规则
 
@@ -449,7 +460,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 - **请求体**：无
 - **查询参数**：`probe`（bool，默认 `true`）
 
-`probe=true` 时做一次**实证 link 探针**：在源树里**有界递归**（深度 ≤3、条目 ≤512、不跟随符号链接）找一个**已存在的普通文件**，把它 `os.link` 到**目标根**下的临时名（`.mlm_probe_<pid>_<rand>.link`）再立刻 `unlink`，并还原目标目录的 atime/mtime。**它绝不写源目录**（若在源目录里 `mkstemp`，源为 `:ro` 时必然 `EROFS`、于是把 `ok` 置 `true` 自我降级 —— 那正是"假绿"的根因）。探针给不出结论时（源树里没有可链的普通文件 / 目标不可写 / `os.link` 返回其它 errno）**不猜**：`probe.ok` 记 `null`，`same_filesystem` 落到「挂载 ID →（读不到 `/proc` 时）`st_dev`」的级联判据。传 `?probe=false` 则完全跳过实证（响应里的 `probe` 为 `null`），直接给级联结论。
+`probe=true` 时做一次**实证 link 探针**：在源树里**有界递归**（深度 ≤3、条目 ≤512、不跟随符号链接）找一个**已存在的普通文件**，把它 `os.link` 到**目标根**下的临时名（`.mlm_probe_<pid>_<rand>.link`）再立刻 `unlink`，并还原目标目录的 atime/mtime。**它绝不写源目录**（若在源目录里 `mkstemp`，源为 `:ro` 时必然 `EROFS`、于是把 `ok` 置 `true` 自我降级 —— 那正是"假绿"的根因）。探针给不出结论时（源树里没有可链的普通文件 / 目标不可写 / `os.link` 返回其它 errno）**不猜**：`probe.ok` 记 `null`，`same_filesystem` 落到「挂载 ID →（读不到 `/proc` 时）`st_dev`」的级联判据。传 `?probe=false` 只跳过这里的 **link 实证**（响应里的 `probe` 为 `null`）；**`permissions` 里的权限预检不受该参数控制** —— 它仍会以运行身份在目标目录（或目标最近已存在的祖先）真写一个临时文件再删，否则「保存前就拦下必然失败的配置」会失去依据。
 
 > 📌 **判据顺序**：
 > ① **实证 `link()` 探针是主判据** —— 能建就是能建（`true`），不能建就是不能建（`false`）；
@@ -461,10 +472,11 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 > **跑任务时则不硬拦**：`POST /api/libraries/{id}/run` 的前置判据即使得到 `false` 也只写 `Task.result.warnings[]` 并继续尝试，真正的成败由执行后的逐文件核对给出。
 
 > 📌 **`errors[]` / `warnings[]` 的出现条件**：
-> - **`errors[]`（同时 `ok=false`）**：① 源与目标相同或互相包含；② **源目录不存在或不是目录**；③ `same_filesystem is false`（此时**同一条判据文案进 `errors[]`**）；④ `processor_ok is false`（处理器已不存在）。
-> - **只 `warnings[]`（`ok` 仍为 `true`）**：① 目标目录当前不存在（跑任务时由建链阶段 `os.makedirs` 建）；② `same_filesystem is null` ⇒ `无法判定源/目标之间能否创建硬链接：` + 判据文案；③ `same_filesystem is true` 且判据文案非空（仅据挂载 ID / `st_dev` 的**未实证**结论）。
+> - **`errors[]`（同时 `ok=false`）**：① 源与目标相同或互相包含；② **源目录不存在或不是目录**；③ `same_filesystem is false`（此时**同一条判据文案进 `errors[]`**）；④ `processor_ok is false`（处理器已不存在）；⑤ **权限预检不过**（源目录对运行身份不可读/不可进入、目标目录或最近已存在祖先不可写、目标路径是文件——文案见 §3.4）。
+> - **只 `warnings[]`（`ok` 仍为 `true`）**：① 目标目录当前不存在（跑任务时由建链阶段 `os.makedirs` 建）；② `same_filesystem is null` ⇒ `无法判定源/目标之间能否创建硬链接：` + 判据文案；③ `same_filesystem is true` 且判据文案非空（仅据挂载 ID / `st_dev` 的**未实证**结论）；④ 源树抽样文件对运行身份不可读（个别文件建链会失败，其它照旧处理）。
 > - **`probe`**：只有 `?probe=true`（默认）时才非 `null`，形状 `{ok, note}`，`ok` 与 `same_filesystem` 同为三态 `bool | null`。
-> - **建库/改库会因跨挂载被拦**：`POST /api/libraries` 与 `PUT /api/libraries/{id}` 在写库前调用 `paths.check_same_mount()`，不同挂载 ⇒ `400`（「跨挂载错误：…」）。预检（§3.8）与运行期 `warnings[]` 仍保留同族判据。
+> - **`permissions`**：权限预检结果，形状 `{ok, identity, errors, warnings, source_exists, target_exists, probe}`；`probe` 是 `{target 或 target_ancestor, ok, note}`（真实写探针）。`ok=false` 时同一批 `errors` 也会并入外层 `errors[]`。
+> - **建库/改库会因跨挂载或权限被拦**：`POST /api/libraries` 与 `PUT /api/libraries/{id}` 在写库前调用 `paths.check_same_mount()` 与 `paths.probe_media_access()`，不同挂载 / 不可读源 / 不可写目标 ⇒ `400`。预检（§3.8）与运行期 `warnings[]` 仍保留同族判据。
 
 > 📌 **判据文案**（`probe.note` / `errors[]` / `warnings[]` 里的同一族文案）—— 下面 `{}` 是插值，其余照抄；测试与前端可按这些前缀匹配：
 
@@ -483,7 +495,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | 11 | 全都判不了 | `无法判定：{path} 不存在或不可访问，且无法实证、也读不到挂载 ID。` |
 | 12 | 路径级硬错 | `目标路径 {dst_ancestor} 不是目录，无法创建硬链接。` / `源路径 {src_ancestor} 不是目录，无法读取。` |
 
-- **响应 `200`**：结构是**扁平**的（不是 `checks` 数组），共 **21 个字段**。**真 Linux 单挂载（推荐形态，实证通过）**：
+- **响应 `200`**：结构是**扁平**的（不是 `checks` 数组），共 **22 个字段**。**真 Linux 单挂载（推荐形态，实证通过）**：
 
 ```json
 {
@@ -494,6 +506,15 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
   "target_exists": true,
   "same_filesystem": true,
   "probe": {"ok": true, "note": "已实证：把源树中的 /vol1/1000/Download/qbittorrent/Bangumi/Show A/Show A S01E01.mkv 硬链接到 /vol1/1000/Library/Bangumi 成功（临时链接已删除、目标目录时间戳已还原，源目录未被写入）。"},
+  "permissions": {
+    "ok": true,
+    "identity": "uid=1000, gid=999, 附加组=[0, 999]",
+    "errors": [],
+    "warnings": [],
+    "source_exists": true,
+    "target_exists": true,
+    "probe": {"target": "/vol1/1000/Library/Bangumi", "ok": true, "note": null}
+  },
   "errors": [],
   "warnings": [
     "已实证：把源树中的 /vol1/1000/Download/qbittorrent/Bangumi/Show A/Show A S01E01.mkv 硬链接到 /vol1/1000/Library/Bangumi 成功（临时链接已删除、目标目录时间戳已还原，源目录未被写入）。"
@@ -537,6 +558,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `source_exists` / `target_exists` | 源目录 / 目标目录**本身**是否存在 |
 | `same_filesystem` | 源与目标能否建硬链接，**三态**：`true` = 可建（已实证，或仅 mount ID / `st_dev` 预筛通过 —— 后者会在 `warnings[]` 注明「未实证」）；`false` = **明确不行**；**`null` = 判不了**（不等于失败，也不是 `false`） |
 | `probe` | 实证探针结果 `{ok, note}`，或 `null`（`?probe=false` 时）。`ok` 是**探针自己的**结论，可能与 `same_filesystem` 不同（探针 `null` 而挂载 ID 判成 `false` 时，`same_filesystem` 是 `false` 而 `probe.ok` 仍是 `null`）。`note` 是逐字中文文案，不是靠 `stat` 推断的话术 |
+| `permissions` | 权限预检 `{ok, identity, errors, warnings, source_exists, target_exists, probe}`。以**当前进程身份**实测：源目录可列出可进入（`os.access(R_OK\|X_OK)`，识破不了自定义权限层时仍以实测为准）、目标目录/最近已存在祖先**真写一个临时文件**再删（能识破只读挂载与 ACL）。`identity` 是运行身份文案（容器内即 PUID/PGID 生效后的 uid/gid/附加组）。`probe` 为 `{target 或 target_ancestor, ok, note}` |
 | `errors` / `warnings` | 中文可读字符串数组；`errors` 非空 = 预检不通过。落点规则见上面的 📌 |
 | `source_folders` | 源目录下的一级文件夹数量；源目录不存在时为 `null` |
 | `processor_ok` / `processor_name` / `processor_kind` | 处理器是否还存在（`spec is not None`）/ 处理器显示名 / **处理器的 `kind` 取值**（`rename` 或 `hardlink_only`，就是规格里的 `spec["kind"]`，**不是** `builtin`/`custom` —— 是否内置看 `GET /api/processors` 的 `builtin` 字段）。**`processor_ok: false` ⇒ `ok=false`** 且 `errors[]` 里写「处理器 X 不存在（可能已被删除）。请先到「处理器」页重建，或把本库改到其它处理器。」 |
@@ -544,6 +566,7 @@ Set-Cookie: mlm_session=<签名值>; HttpOnly; SameSite=Lax; Path=/
 | `same_filesystem_paths` | 实际参与比较的两个已存在路径（排查"为什么说我跨挂载"时看它） |
 
 > **建议新建库后先点一次「预检」**：它能在真正跑任务之前把跨文件系统、路径越界这类问题暴露出来。判定规则很简单：**`errors[]` 非空 = 预检失败**；`warnings[]` 只是提示，不阻塞。
+> 📌 不过**不要依赖用户点按钮**：建库/改库保存那一刻已经自动做同样的「源可读、目标可写」实测（不写源目录），必然失败的配置会直接 `400`；「预检」按钮额外做的只是 `os.link` 实证与更完整的诊断输出。
 
 ### 3.9 `POST /api/libraries/{id}/run` — 手动跑一次
 

@@ -382,6 +382,133 @@ def find_sample_file(
     return None
 
 
+# ------------------------------------------------- 建库权限预检（按运行身份实拍）
+#
+# 建库/改库保存时**以应用自己的运行身份**实测「读源、写目标」，而不是只看 mode 位：
+# 有些 NAS 有自定义权限层（如 fnOS 的 trimacl），mode 位看起来不可读却实际可读，
+# 也可能反过来；只有真正以当前进程身份访问一次才可靠。
+# 这不是「预检」按钮的替代 —— 按钮仍然保留（它还会额外做 os.link 实证），
+# 这里是在保存那一刻就把「必然失败」的配置拦下来，而不是等第一次跑任务才发现。
+
+
+def describe_process_identity() -> str:
+    """当前进程的运行身份（容器内即 PUID/PGID 生效后的 uid/gid），用于报错文案。"""
+    try:
+        uid = os.getuid()
+        gid = os.getgid()
+    except AttributeError:  # pragma: no cover - Windows 开发机
+        return "当前进程（Windows 开发机没有 uid/gid）"
+    try:
+        groups = sorted({gid, *os.getgroups()})
+    except OSError:  # pragma: no cover - 极端情况下取不到
+        groups = [gid]
+    return f"uid={uid}, gid={gid}, 附加组=[{', '.join(str(g) for g in groups)}]"
+
+
+def _can_read_directory(path: str) -> bool:
+    """目录能否被当前身份列出并进入（R + X）。"""
+    try:
+        return os.access(path, os.R_OK | os.X_OK)
+    except OSError:  # pragma: no cover - os.access 不抛，仅防御
+        return False
+
+
+def _write_probe(directory: str) -> tuple[bool, str | None]:
+    """在目录里真写一个临时文件再删掉。
+
+    ``os.access`` 只看 mode 位与身份，识破不了**只读挂载**和某些 ACL；真写一次
+    才能确认「建链阶段不会因为写不进目标目录而失败」。临时文件用 ``PROBE_PREFIX``
+    前缀（与硬链接探针同一套残留清扫规则），正常路径会立即删除。
+    """
+    probe = os.path.join(normalize(directory), f"{PROBE_PREFIX}{uuid.uuid4().hex}.write")
+    try:
+        handle = os.open(probe, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except OSError as exc:
+        return False, f"{exc.strerror or exc}（errno={exc.errno}）"
+    try:
+        os.write(handle, b"ok")
+    except OSError as exc:  # pragma: no cover - 打开成功但写失败（磁盘满/配额）很少见
+        return False, f"{exc.strerror or exc}（errno={exc.errno}）"
+    finally:
+        os.close(handle)
+        try:
+            os.unlink(probe)
+        except OSError:  # pragma: no cover - 删不掉只留一个探针文件，不影响结论
+            pass
+    return True, None
+
+
+def probe_media_access(source_dir: str, target_dir: str) -> dict:
+    """用**当前进程身份**实测：源目录可读可进入、目标目录可写。
+
+    建库/改库保存时调用；返回::
+
+        {"ok": bool, "identity": str, "errors": [...], "warnings": [...],
+         "source_exists": bool, "target_exists": bool, "probe": {...}}
+
+    - 源目录不存在 / 不是目录 / 不可读 ⇒ ``errors``（建链阶段必失败，提前拦）
+    - 目标目录已存在但写不进 ⇒ ``errors``（用真实临时文件探测，只读挂载也拦得住）
+    - 目标目录还不存在 ⇒ 检查最近已存在的祖先可写（建链阶段会自己创建）
+    - 源树抽样文件不可读 ⇒ ``warnings``（可能只是个别文件，其余文件照旧处理）
+    """
+    identity = describe_process_identity()
+    report: dict = {
+        "ok": True,
+        "identity": identity,
+        "errors": [],
+        "warnings": [],
+        "source_exists": False,
+        "target_exists": False,
+        "probe": None,
+    }
+    source = normalize(source_dir)
+    target = normalize(target_dir)
+
+    report["source_exists"] = os.path.isdir(source)
+    if not report["source_exists"]:
+        report["errors"].append(
+            f"源目录 {source} 不存在或不是目录：建链阶段会在这里报错，请先完成一次下载或修正挂载"
+            f"（当前运行身份：{identity}）。"
+        )
+    elif not _can_read_directory(source):
+        report["errors"].append(
+            f"源目录 {source} 对应用运行身份（{identity}）不可读或不可进入："
+            f"回调任务会报 Permission denied。"
+        )
+
+    report["target_exists"] = os.path.isdir(target)
+    if report["target_exists"]:
+        writable, note = _write_probe(target)
+        report["probe"] = {"target": target, "ok": writable, "note": note}
+        if not writable:
+            report["errors"].append(
+                f"目标目录 {target} 对应用运行身份（{identity}）不可写（{note}）：建链阶段会失败。"
+            )
+    elif os.path.exists(target):
+        report["errors"].append(
+            f"目标路径 {target} 已存在但不是目录：请改成一个目录路径（{identity}）。"
+        )
+    else:
+        ancestor = existing_ancestor(target)
+        writable, note = _write_probe(ancestor)
+        report["probe"] = {"target_ancestor": ancestor, "ok": writable, "note": note}
+        if not writable:
+            report["errors"].append(
+                f"目标目录 {target} 尚不存在，应用运行身份（{identity}）也无法在最近的已存在目录 "
+                f"{ancestor} 里创建它（{note}）。"
+            )
+
+    if report["source_exists"] and _can_read_directory(source):
+        sample = find_sample_file(source)
+        if sample is not None and not os.access(sample, os.R_OK):
+            report["warnings"].append(
+                f"源树抽样文件 {sample} 对应用运行身份（{identity}）不可读："
+                f"该文件建链时会失败（其它文件照旧处理），排查见 FAQ 第 43 问。"
+            )
+    report["ok"] = not report["errors"]
+    return report
+
+
 def cleanup_probe_leftovers(directory: str) -> int:
     """清扫 ``directory`` 里遗留的 ``.mlm_probe_*`` 临时文件（**不递归**）。
 

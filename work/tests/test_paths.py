@@ -829,3 +829,106 @@ def test_translate_downloader_path_probes_the_translated_path_not_the_raw_one(pa
     assert translated == "/vol1/1000/Download/Show"
     assert rule == "/downloads => /vol1/1000/Download"
     assert seen == ["/vol1/1000/Download/Show"]
+
+
+# --------------------------------------------------------------------------- #
+# 建库权限预检（probe_media_access）：用运行身份实测，不依赖「预检」按钮
+# --------------------------------------------------------------------------- #
+
+
+def test_probe_media_access_rejects_a_missing_source(tmp_path, paths_mod):
+    source = tmp_path / "downloads" / "Bangumi"
+    target = tmp_path / "library" / "Bangumi"
+    target.mkdir(parents=True)
+    report = paths_mod.probe_media_access(str(source), str(target))
+    assert report["ok"] is False
+    assert any(
+        "不存在" in message and paths_mod.normalize(str(source)) in message
+        for message in report["errors"]
+    )
+    assert report["identity"], "报错文案要带上当前运行身份，方便用户对照 PUID/PGID"
+
+
+def test_probe_media_access_accepts_a_normal_library_without_leaving_probe_files(tmp_path, paths_mod):
+    source = tmp_path / "downloads" / "Bangumi"
+    (source / "Show").mkdir(parents=True)
+    (source / "Show" / "01.mkv").write_bytes(b"x")
+    target = tmp_path / "library" / "Bangumi"
+    target.mkdir(parents=True)
+    report = paths_mod.probe_media_access(str(source), str(target))
+    assert report["ok"] is True, report
+    assert report["errors"] == [] and report["warnings"] == []
+    assert report["source_exists"] is True and report["target_exists"] is True
+    assert report["probe"]["ok"] is True
+    assert not list(target.glob(".mlm_probe_*")), "写权限探针必须自己删干净"
+
+
+def test_probe_media_access_checks_the_nearest_existing_ancestor_for_a_missing_target(
+    tmp_path, paths_mod
+):
+    source = tmp_path / "downloads"
+    source.mkdir(parents=True)
+    target = tmp_path / "library" / "Bangumi"  # 连父目录都不存在
+    report = paths_mod.probe_media_access(str(source), str(target))
+    assert report["target_exists"] is False
+    assert report["probe"]["target_ancestor"] == paths_mod.normalize(str(tmp_path))
+    assert report["ok"] is True, "祖先可写 ⇒ 建链阶段能自己创建目标目录，不算错误"
+
+
+def test_probe_media_access_reports_an_unreadable_source_directory(tmp_path, paths_mod, monkeypatch):
+    source = tmp_path / "downloads"
+    source.mkdir()
+    target = tmp_path / "library"
+    target.mkdir()
+    monkeypatch.setattr(paths_mod, "_can_read_directory", lambda _path: False)
+    report = paths_mod.probe_media_access(str(source), str(target))
+    assert report["ok"] is False
+    assert any("不可读" in message or "不可进入" in message for message in report["errors"])
+
+
+def test_probe_media_access_reports_an_unwritable_target_directory(tmp_path, paths_mod, monkeypatch):
+    source = tmp_path / "downloads"
+    source.mkdir()
+    target = tmp_path / "library"
+    target.mkdir()
+    monkeypatch.setattr(
+        paths_mod, "_write_probe", lambda _path: (False, "Read-only file system（errno=30）")
+    )
+    report = paths_mod.probe_media_access(str(source), str(target))
+    assert report["ok"] is False
+    assert any("不可写" in message for message in report["errors"])
+
+
+def test_probe_media_access_rejects_a_target_that_is_a_file(tmp_path, paths_mod):
+    source = tmp_path / "downloads"
+    source.mkdir()
+    target = tmp_path / "library"
+    target.write_bytes(b"not a directory")
+    report = paths_mod.probe_media_access(str(source), str(target))
+    assert report["ok"] is False
+    assert any("不是目录" in message for message in report["errors"])
+
+
+def test_probe_media_access_warns_about_an_unreadable_sampled_source_file(
+    tmp_path, paths_mod, monkeypatch
+):
+    """个别源文件读不了只给 warning（其它文件照旧处理），但必须提醒到用户。"""
+    source = tmp_path / "downloads" / "Show"
+    source.mkdir(parents=True)
+    sample = source / "01.mkv"
+    sample.write_bytes(b"x")
+    target = tmp_path / "library"
+    target.mkdir()
+    monkeypatch.setattr(paths_mod, "find_sample_file", lambda _root, **_kwargs: str(sample))
+    real_access = os.access
+
+    def fake_access(path, mode):  # noqa: ANN001, ANN202 - 测试替身
+        if str(path) == str(sample):
+            return False
+        return real_access(path, mode)
+
+    monkeypatch.setattr(paths_mod.os, "access", fake_access)
+    report = paths_mod.probe_media_access(str(sample.parent), str(target))
+    assert report["ok"] is True, report
+    assert any(str(sample) in message and "不可读" in message for message in report["warnings"])
+

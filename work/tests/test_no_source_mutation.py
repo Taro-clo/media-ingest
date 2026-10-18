@@ -390,6 +390,8 @@ def test_destructive_write_sites_are_pinned_and_rename_only_touches_the_target_l
     allowed = {
         ("paths.py", "probe_cross_filesystem"),        # 删掉自己刚建的那个 .mlm_probe_* 临时链接
         ("paths.py", "cleanup_probe_leftovers"),       # 清扫被强杀留下的 .mlm_probe_* 残留（只扫目标目录）
+        # 建库/改库的权限预检：在**目标目录或其已存在的祖先**里写一个探针文件再删（源目录只读）。
+        ("paths.py", "_write_probe"),
         ("routers/system.py", "_writable"),            # 健康检查探测后删掉自己的探针文件
         ("configstore.py", "_write_yaml"),             # 临时文件 + os.replace 原子写配置（数据卷）
         ("processors/engine.py", "_process_scope"),    # 执行改名，只作用于目标库

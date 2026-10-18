@@ -1106,3 +1106,101 @@ def test_config_endpoints_round_trip(api_client, api_login):
     assert healed.json()["result"]["errors"] == [], healed.text
     assert healed.json()["errors"] == [], healed.text
     assert all(entry["in_sync"] is True for entry in healed.json()["files"]), healed.text
+
+
+# --------------------------------------------------------------------------- #
+# 建库权限预检：保存时就实测（不依赖「预检」按钮）
+# --------------------------------------------------------------------------- #
+
+
+def test_library_create_still_allows_a_missing_source_but_validate_reports_it(
+    api_client, api_login, tmp_path
+):
+    """源目录还不存在时**建库照旧允许**（「先建库、后有第一次下载」是正常流程），
+
+    但「预检」必须报出来，且新增的 `permissions` 组要标明源目录不存在。
+    权限类硬错（源不可读 / 目标不可写）才在保存时直接 400，见下一个用例。
+    """
+    api_login(api_client)
+    missing_source = tmp_path / "downloads" / "no-such-dir"
+    target = tmp_path / "library" / "Bangumi"
+    target.mkdir(parents=True, exist_ok=True)
+    response = api_client.post(
+        "/api/libraries",
+        json={
+            "name": "源目录不存在",
+            "type": "Bangumi",
+            "processor_id": "bangumi",
+            "source_dir": str(missing_source),
+            "target_dir": str(target),
+        },
+    )
+    assert response.status_code == 201, response.text
+    library = response.json()
+
+    report = api_client.post(f"/api/libraries/{library['id']}/validate?probe=false")
+    assert report.status_code == 200, report.text
+    body = report.json()
+    assert body["ok"] is False, body
+    assert any("源目录" in message and "不存在" in message for message in body["errors"]), body
+    assert body["permissions"]["source_exists"] is False, body["permissions"]
+    identity = body["permissions"]["identity"]
+    assert "uid=" in identity and "gid=" in identity, body["permissions"]
+
+
+def test_library_create_and_update_surface_permission_errors(
+    api_client, api_login, source_dir, target_dir, monkeypatch
+):
+    """权限不可读/不可写时，建库和改库都立即 400；改库失败不能落库。"""
+    api_login(api_client)
+    from app import paths as paths_module
+
+    fake_report = {
+        "ok": False,
+        "identity": "uid=1000, gid=999, 附加组=[999]",
+        "errors": ["源目录 /downloads/Bangumi 对应用运行身份（uid=1000, gid=999, 附加组=[999]）不可读或不可进入"],
+        "warnings": [],
+        "source_exists": True,
+        "target_exists": True,
+        "probe": None,
+    }
+    monkeypatch.setattr(paths_module, "probe_media_access", lambda *args, **kwargs: dict(fake_report))
+
+    rejected = api_client.post(
+        "/api/libraries",
+        json={
+            "name": "权限不对",
+            "type": "Bangumi",
+            "processor_id": "bangumi",
+            "source_dir": str(source_dir),
+            "target_dir": str(target_dir),
+        },
+    )
+    assert rejected.status_code == 400, rejected.text
+    detail = rejected.json()["detail"]
+    assert "不可读" in detail and "uid=1000" in detail and "43" in detail, detail
+    assert api_client.get("/api/libraries").json()["total"] == 0
+
+    monkeypatch.undo()
+    library = _create_library(api_client, source_dir, target_dir)
+    monkeypatch.setattr(paths_module, "probe_media_access", lambda *args, **kwargs: dict(fake_report))
+    updated = api_client.put(
+        f"/api/libraries/{library['id']}",
+        json={**library, "name": "改路径被拦"},
+    )
+    assert updated.status_code == 400, updated.text
+    assert "不可读" in updated.json()["detail"]
+    assert api_client.get(f"/api/libraries/{library['id']}").json()["name"] == library["name"]
+
+
+def test_validate_reports_the_permission_probe_for_a_healthy_library(
+    api_client, api_login, source_dir, target_dir
+):
+    """「预检」接口也带上权限体检结果，方便用户一次看到全部结论。"""
+    api_login(api_client)
+    library = _create_library(api_client, source_dir, target_dir)
+    report = api_client.post(f"/api/libraries/{library['id']}/validate").json()
+    assert report["permissions"]["ok"] is True, report["permissions"]
+    assert report["permissions"]["identity"], report["permissions"]
+    assert report["permissions"]["probe"]["ok"] is True, report["permissions"]
+
