@@ -168,16 +168,17 @@ def create_app() -> FastAPI:
             )
         return response
 
-    # ---- 2) 静态前端禁用浏览器启发式缓存
-    # 没有 Cache-Control 时，浏览器会按 Last-Modified 推算"新鲜期"，期间刷新也
+    # ---- 2) 静态前端禁止浏览器缓存
+    # 没有 Cache-Control 时，浏览器会按 Last-Modified 推算"启发式新鲜期"，期间刷新也
     # 不会重新校验 —— 部署后旧的 js/css 可能被继续直接使用（改密码反馈曾因此
-    # 看起来"没生效"）。no-cache 只要求每次带 ETag 重新校验，未变化仍回 304，
-    # 代价可以忽略；API 响应不受影响（/api/* 各自决定缓存策略）。
+    # 看起来"没生效"，用户连普通刷新都不够，必须强制刷新才拿到新文件）。
+    # 这里直接 no-store：每次加载都重新取（前端总量只有几百 KB，局域网代价可忽略），
+    # 彻底避免"部署了新版本、页面还是旧逻辑"。API 响应不受影响（/api/* 各自决定）。
     @app.middleware("http")
     async def static_no_cache(request: Request, call_next):
         response = await call_next(request)
         if request.method in {"GET", "HEAD"} and not request.url.path.startswith("/api/"):
-            response.headers.setdefault("Cache-Control", "no-cache")
+            response.headers.setdefault("Cache-Control", "no-store")
         return response
 
     # ---- 3) 未捕获异常：给前端一个稳定的 JSON 形状，而不是 HTML 堆栈

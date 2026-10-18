@@ -115,7 +115,7 @@
 | §6.6 `queue` | `tests/test_queue_serialization.py`（8） | 串行、取消、异常落账 |
 | §6.9 `qbittorrent` | `tests/test_scanner_qbittorrent.py`（3） | 必须用模块级 `test_connection()` |
 | §6.10 `todos` | `tests/test_todos.py`（27）、`tests/test_web_todo_board.py`（7） | 去重语义、不可检测种类如实告知 |
-| §7 前端（免构建、hash 路由） | `tests/test_web_todo_board.py`（7）、`tests/test_api_smoke.py::test_static_frontend_is_served_with_no_cache` | 静态资源与 i18n 存在性；静态文件必须带 `Cache-Control: no-cache`（否则部署后旧 JS 会被浏览器启发式缓存继续使用） |
+| §7 前端（免构建、hash 路由） | `tests/test_web_todo_board.py`（7）、`tests/test_api_smoke.py::test_static_frontend_is_served_without_browser_cache` | 静态资源与 i18n 存在性；静态文件必须带 `Cache-Control: no-store`（否则部署后旧 JS 会被浏览器启发式缓存继续使用，普通刷新都不够） |
 
 ## 6. `tests/test_rule_validation.py` 的历史规则编号 A5–A13
 
