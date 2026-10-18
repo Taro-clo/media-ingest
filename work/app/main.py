@@ -168,7 +168,19 @@ def create_app() -> FastAPI:
             )
         return response
 
-    # ---- 2) 未捕获异常：给前端一个稳定的 JSON 形状，而不是 HTML 堆栈
+    # ---- 2) 静态前端禁用浏览器启发式缓存
+    # 没有 Cache-Control 时，浏览器会按 Last-Modified 推算"新鲜期"，期间刷新也
+    # 不会重新校验 —— 部署后旧的 js/css 可能被继续直接使用（改密码反馈曾因此
+    # 看起来"没生效"）。no-cache 只要求每次带 ETag 重新校验，未变化仍回 304，
+    # 代价可以忽略；API 响应不受影响（/api/* 各自决定缓存策略）。
+    @app.middleware("http")
+    async def static_no_cache(request: Request, call_next):
+        response = await call_next(request)
+        if request.method in {"GET", "HEAD"} and not request.url.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+    # ---- 3) 未捕获异常：给前端一个稳定的 JSON 形状，而不是 HTML 堆栈
     @app.exception_handler(Exception)
     async def unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("未处理的异常：%s %s", request.method, request.url.path)
@@ -177,7 +189,7 @@ def create_app() -> FastAPI:
             content={"detail": f"服务器内部错误：{type(exc).__name__}: {exc}"},
         )
 
-    # ---- 3) API 路由：**必须**先于静态目录注册（ARCHITECTURE §5.0 ② 路由挂载）
+    # ---- 4) API 路由：**必须**先于静态目录注册（ARCHITECTURE §5.0 ② 路由挂载）
     app.include_router(auth.router)
     app.include_router(libraries.router)
     app.include_router(tasks.router)
@@ -189,7 +201,7 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(hooks.router)
 
-    # ---- 4) 静态前端：整棵挂在 /（html=True 让 GET / 命中 index.html）
+    # ---- 5) 静态前端：整棵挂在 /（html=True 让 GET / 命中 index.html）
     web_dir = _resolve_web_dir()
     if web_dir is not None:
         app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="web")

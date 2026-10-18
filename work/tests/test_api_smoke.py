@@ -1204,3 +1204,19 @@ def test_validate_reports_the_permission_probe_for_a_healthy_library(
     assert report["permissions"]["identity"], report["permissions"]
     assert report["permissions"]["probe"]["ok"] is True, report["permissions"]
 
+
+def test_static_frontend_is_served_with_no_cache(api_client):
+    """静态前端必须带 ``Cache-Control: no-cache``。
+
+    缺这个头时浏览器会按 ``Last-Modified`` 推算"启发式新鲜期"，期间普通刷新也
+    不会重新校验 —— 部署后旧的 js/css 会被继续直接使用（改密码提示就曾因此
+    看起来"没生效"）。no-cache 只要求每次带 ETag 重新校验，未变化仍走 304。
+    """
+    index = api_client.get("/")
+    if index.status_code != 200 or "text/html" not in index.headers.get("content-type", ""):
+        pytest.skip("测试环境没有挂载静态前端目录")
+    assert index.headers["cache-control"] == "no-cache"
+    script = api_client.get("/js/app.js")
+    assert script.status_code == 200, script.text
+    assert script.headers["cache-control"] == "no-cache"
+
