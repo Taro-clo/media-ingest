@@ -59,23 +59,88 @@ def _effective_lines(text: str) -> list[str]:
     return out
 
 
+_ENV_DEFAULT_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::-([^}]*))?\}")
+
+
+def _split_mount_entry(entry: str) -> list[str]:
+    """按**顶层**冒号切分挂载条目（``${MEDIA_ROOT:-/vol1/1000}`` 里的冒号不算分隔符）。"""
+    parts: list[str] = []
+    buffer = ""
+    depth = 0
+    index = 0
+    while index < len(entry):
+        if entry.startswith("${", index):
+            depth += 1
+            buffer += "${"
+            index += 2
+            continue
+        char = entry[index]
+        if char == "}" and depth:
+            depth -= 1
+        elif char == ":" and depth == 0:
+            parts.append(buffer)
+            buffer = ""
+            index += 1
+            continue
+        buffer += char
+        index += 1
+    parts.append(buffer)
+    return parts
+
+
+def _resolve_env_default(value: str) -> str | None:
+    """把 compose 的 ``${VAR:-默认值}`` 还原成默认值；``${VAR}``（无默认值）返回 ``None``。
+
+    compose 的卷条目写成变量表达式（``${MEDIA_ROOT:-/vol1/1000}``），按行 ``split(":")`` 会被
+    表达式里的冒号切坏 —— 旧版 ``_mounts()`` 因此把媒体挂载整条跳过、断言只剩 ``{}``，
+    下面的「挂载拓扑不许退化」守卫名存实亡。这里如实解析：没有默认值的变量视为
+    「部署时才知道」，跳过该条（不猜）。
+    """
+    match = _ENV_DEFAULT_RE.fullmatch(value)
+    if match is None:
+        return value
+    return match.group(1)
+
+
 def _mounts(text: str) -> dict[str, tuple[str, str]]:
-    """``{容器路径: (宿主路径, 模式)}``；模式默认 ``rw``，识别 ``:ro``/``:rw`` 后缀。"""
+    """``{容器路径: (宿主路径, 模式)}``；模式默认 ``rw``，识别 ``:ro``/``:rw`` 后缀。
+
+    支持 ``${VAR:-默认值}`` 形态的卷条目（见 ``_resolve_env_default``）；``${VAR}`` 这种
+    没有默认值的条目无法静态判断，跳过。
+    """
     mounts: dict[str, tuple[str, str]] = {}
     for line in _effective_lines(text):
         if not line.startswith("- ") or ":" not in line:
             continue
-        entry = line[2:].strip().strip('"').strip("'").replace(" ", "")
-        parts = entry.split(":")
-        if len(parts) < 2 or not parts[0].startswith("/"):
+        entry = line[2:].strip().strip('"').strip("'")
+        parts = _split_mount_entry(entry)
+        if len(parts) < 2:
             continue
         mode = parts[-1] if parts[-1] in ("ro", "rw") else "rw"
-        body = parts[:-1] if mode != "rw" else parts
-        host = body[0]
-        container = ":".join(body[1:])
-        if container.startswith("/"):
-            mounts[container] = (host, mode)
+        body = parts[:-1] if parts[-1] in ("ro", "rw") else parts
+        if len(body) < 2:
+            continue
+        host = _resolve_env_default(body[0])
+        container = _resolve_env_default(":".join(body[1:]))
+        if host is None or container is None or not container.startswith("/"):
+            continue
+        mounts[container] = (host, mode)
     return mounts
+
+
+def _media_mount_only(mounts: dict[str, tuple[str, str]]) -> tuple[str, str]:
+    """断言「除 ``/data`` 外只有一条共同父挂载，且容器路径 = 宿主路径」，返回 ``(容器, 宿主)``。"""
+    assert "/data" in mounts, f"数据卷 /data 必须存在：{mounts}"
+    assert mounts["/data"][1] == "rw", "数据卷必须可写（SQLite、日志、配置）"
+    media = {container: value for container, value in mounts.items() if container != "/data"}
+    assert len(media) == 1, (
+        f"除数据卷外只应有**一条**共同父挂载（单挂载形态 B9），实际：{mounts}"
+    )
+    container, (host, _mode) = next(iter(media.items()))
+    assert host == container, (
+        f"共同父挂载必须「容器路径 = 宿主路径」，实际：{container} <- {host}"
+    )
+    return container, host
 
 
 def _media_root_entry(text: str) -> str:
@@ -190,7 +255,7 @@ def test_b1_no_original_script_dir_is_mounted_and_no_copy_ships_in_the_image(com
             f"{retired} 这类独立 bind 与共同父挂载互斥：单挂载形态下「源单独 :ro 挂载」与"
             f"「跨路径硬链接」互斥（两条独立 bind ⇒ link() 必然 EXDEV）。实际挂载：{mounts}"
         )
-    assert set(mounts) == {"/data"}, mounts
+    media_container, _media_host = _media_mount_only(mounts)
 
     entry = _media_root_entry(compose_text)
     assert re.fullmatch(r"(?P<mount>\$\{MEDIA_ROOT[^}]*\}):(?P=mount)", entry), (
@@ -227,8 +292,7 @@ def test_a10_is_superseded_by_b9_so_the_parent_mount_is_the_only_media_bind(comp
     本用例因此**不再断言任何挂载级只读**（``read_only``/``:ro``），只钉共同父挂载的形状。
     """
     mounts = _mounts(compose_text)
-    assert set(mounts) == {"/data"}, mounts
-    assert mounts["/data"][1] == "rw", "数据卷必须可写（SQLite、日志、配置）"
+    media_container, _media_host = _media_mount_only(mounts)
 
     entry = _media_root_entry(compose_text)
     match = re.fullmatch(
@@ -240,6 +304,9 @@ def test_a10_is_superseded_by_b9_so_the_parent_mount_is_the_only_media_bind(comp
     )
     default = match.group("mount")
     assert default.startswith("/"), f"默认媒体根必须是容器内绝对路径，实际：{default!r}"
+    assert PurePosixPath(default) == PurePosixPath(media_container), (
+        f"卷条目解析出的容器路径 {media_container!r} 必须等于变量的默认值 {default!r}"
+    )
 
     parent = PurePosixPath(default)
     for host_root in (HOST_DOWNLOAD_ROOT, HOST_LIBRARY_ROOT):

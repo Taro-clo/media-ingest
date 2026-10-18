@@ -151,8 +151,10 @@ def write_audit():
 def test_hardlink_pipeline_never_touches_the_source_tree(
     adapter, build_tree, source_dir, library_root, target_dir, log_dir, write_audit
 ):
-    write_audit.protect(source_dir)
+    # 先建树、后登记受保护：审计只该覆盖**被测管线**的写操作，不能把夹具自己建树算成违规
+    # （否则 POSIX 容器里会稳定 teardown ERROR）。
     build_tree(source_dir, MEDIA_TREE)
+    write_audit.protect(source_dir)
     before = H.tree_snapshot(source_dir)
     contents = {
         str(path.relative_to(source_dir)): H.read_bytes(path)
@@ -252,8 +254,10 @@ def test_rename_pipelines_only_run_inside_the_target_root(
     这里用 ``legacy`` 预设，它保留最朴素的旧口径的字段值与语义
     （等价性由本项目自己的回归测试守卫）。
     """
-    write_audit.protect(source_dir)
+    # 先建树、后登记受保护：审计只该覆盖**被测管线**的写操作，不能把夹具自己建树算成违规
+    # （否则 POSIX 容器里会稳定 teardown ERROR）。
     build_tree(source_dir, MEDIA_TREE)
+    write_audit.protect(source_dir)
     source_before = H.tree_snapshot(source_dir)
 
     bangumi_root = library_root / "Bangumi"

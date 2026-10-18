@@ -414,14 +414,18 @@ def test_validate_reports_a_missing_source_dir_even_when_the_probe_is_unprovable
 
 
 def test_system_info_exposes_the_same_three_state_verdict_without_probing(
-    api_client, api_login, paths_mod, monkeypatch
+    api_client, api_login, source_dir, target_dir, paths_mod, monkeypatch
 ):
     """``GET /api/system/info`` 的 ``downloads_vs_library`` 也是三态，且**不做**实证探测。
 
     只读展示接口会被 UI 反复轮询：它绝不能每次往目标目录写一个临时链接再删掉
     （``app/routers/system.py`` 的 ``probe=False``）。这里把三个取值都点一遍。
+
+    该字段取**第一个媒体库**的源/目标来判（没有库时按设计返回 ``null`` + 说明），
+    所以先建一个库让接口走到被测分支。
     """
     api_login(api_client)
+    _create_library(api_client, "三态库", source_dir, target_dir)
 
     for support, note in [
         (True, "未实证，仅据 st_dev（同为 st_dev=66306，可能假绿）。"),

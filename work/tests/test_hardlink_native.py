@@ -385,7 +385,13 @@ def test_last_failures_reports_the_full_target_path_for_dashed_folders(
     # 实现用 os.path.relpath 取相对路径，一级目录得到 "." ⇒ 目标路径里带 "/./"
     # （stdout 的那行也是这个形状）；结构化通道给的是**完整**路径，规范化后即这个文件。
     assert [os.path.normpath(target) for target, _error in failures] == [expected], failures
-    assert "File exists" in failures[0][1] or "Errno 17" in failures[0][1], failures[0][1]
+    # 异常文本随平台不同：POSIX 是 "File exists"/"Errno 17"，Windows 是
+    # "[WinError 183] 当文件已存在时，无法创建该文件。" —— 只断言"撞已存在"这个语义。
+    error_text = failures[0][1]
+    assert any(
+        token in error_text
+        for token in ("File exists", "Errno 17", "WinError 183", "已存在")
+    ), error_text
 
     failed_line = next(line for line in stdout.splitlines() if line.startswith("创建硬链接失败: "))
     body = failed_line[len("创建硬链接失败: "):]
