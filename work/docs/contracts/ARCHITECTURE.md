@@ -188,6 +188,11 @@ CREATE UNIQUE INDEX idx_link_records_library_folder ON link_records(library_id, 
 **② 路由挂载**：`StaticFiles(directory="web", html=True)` 把 `web/` 挂在 `/`，`/api/*` 先注册 ⇒ 前端用
 **相对路径**引用 `css/app.css`、`js/app.js`，`#/...` hash 路由无需服务端 rewrite。
 
+**②′ 静态前端不缓存**：`app/main.py` 的 HTTP 中间件给所有**非 `/api/*`** 的 `GET`/`HEAD` 响应加
+`Cache-Control: no-store`。`StaticFiles` 默认只回 `ETag`/`Last-Modified`，浏览器会据此推算"启发式新鲜期"
+（可达数小时），部署新版本后普通刷新仍用旧 JS —— 必须 `no-store` 才能做到"换镜像/热更新即生效"。
+**例外**：`/api/*` 自己的缓存语义各自定义（如任务 SSE 走 `no-cache` + `X-Accel-Buffering: no`）。
+
 **③ 响应体字段冻结**：
 
 1. 库列表项 `stats`（列表与详情都带）= `{"last_task_id","last_kind","last_status","last_trigger",
@@ -212,12 +217,14 @@ CREATE UNIQUE INDEX idx_link_records_library_folder ON link_records(library_id, 
    `GET /api/system/info` 多 `details`/`encoding`/`disk`/`mounts[].read_only`；
    `GET /api/stats/overview` 多 `qbittorrent{status,version}`/`recent_limit`。前端可安全读取，但**不得**当
    契约改动（改了要同步本表）。
-8. **`POST /api/libraries/{id}/validate` 是扁平对象、没有 `checks[]`**（21 个字段，形状见 `API.md` §3.8）。
-   `?probe=`（默认 `true`）控制是否做实证探针；`same_filesystem` 是 `bool | None`。落点：`false`
+8. **`POST /api/libraries/{id}/validate` 是扁平对象、没有 `checks[]`**（22 个字段，形状见 `API.md` §3.8）。
+   `?probe=`（默认 `true`）控制是否做 **link 实证探针**；`same_filesystem` 是 `bool | None`。落点：`false`
    （**已证实**建不出）⇒ `ok=false` + `errors[]`；`null` ⇒ **只**进 `warnings[]`；`true` 但仅据 mount ID /
-   `st_dev` 预筛 ⇒ 也进 `warnings[]`。故 **`warnings` 非空 ≠ 有问题**。`POST /api/libraries` /
-   `PUT /api/libraries/{id}` 在写库前调用 `check_cross_mounts()` + `check_same_mount()`
-   （不同挂载 ⇒ `400`）；`/run` 时判据为 `false` 也只写 `warnings[]` 并继续尝试。
+   `st_dev` 预筛 ⇒ 也进 `warnings[]`。故 **`warnings` 非空 ≠ 有问题**。`permissions` 是**权限预检**（以运行身份
+   实测源可读、目标/最近已存在祖先可写），**不受 `?probe=` 控制**，`ok=false` 时其 `errors` 并入外层 `errors[]`。
+   `POST /api/libraries` / `PUT /api/libraries/{id}` 在写库前调用 `check_cross_mounts()` + `check_same_mount()`
+   （不同挂载 ⇒ `400`）+ `_permission_precheck()`（权限类硬错 ⇒ `400`，源目录尚不存在不算错）；
+   `/run` 时判据为 `false` 也只写 `warnings[]` 并继续尝试。
 9. **`/api/hooks/*` 的参数只从 URL 查询串或 urlencoded 表单体读取，JSON 请求体被静默忽略**；
    **查询串优先级高于表单体**。用 `-H 'Content-Type: application/json' -d '{…}'` 会得到 `torrent.name`
    为空、命中 0 个库 —— 最难查的静默失败，文档与排障必须点名。

@@ -132,7 +132,8 @@
 
 | 主题 | 现行契约（一句话） | 权威处 |
 |---|---|---|
-| `/validate` 响应形状 | **扁平对象、21 个字段，没有 `checks[]`**；`same_filesystem` 三态：`false` ⇒ `errors[]` + `ok=false`，`null` 或未实证的 `true` ⇒ 只进 `warnings[]`（**`warnings` 非空 ≠ 有问题**） | `API.md` §3.8；`ARCHITECTURE.md` §5.0 ⑧ |
+| `/validate` 响应形状 | **扁平对象、22 个字段，没有 `checks[]`**；`same_filesystem` 三态：`false` ⇒ `errors[]` + `ok=false`，`null` 或未实证的 `true` ⇒ 只进 `warnings[]`（**`warnings` 非空 ≠ 有问题**）；`permissions` 是权限预检（**不受 `?probe=` 控制**，`ok=false` 时并入外层 `errors[]`） | `API.md` §3.8；`ARCHITECTURE.md` §5.0 ⑧ |
+| 静态前端缓存 | 非 `/api/*` 的 `GET`/`HEAD` 一律 `Cache-Control: no-store`：`StaticFiles` 的 `ETag`/`Last-Modified` 会诱发浏览器启发式缓存，部署新版本后普通刷新仍可能用旧 JS；`no-store` 才能"换镜像即生效" | `ARCHITECTURE.md` §5.0 ②′；`app/main.py` 的 HTTP 中间件 |
 | 方法 | `/validate` 是 **POST**（GET → 404）；`/api/auth/password` 是 **POST**（PUT → 405） | `API.md` §5 |
 | 删除媒体库的响应 | 多返回 `library_id` 与 `link_records_removed`（超集，只增不改） | `API.md` §5；`ARCHITECTURE.md` §5.0 ⑦ |
 | 任务日志 item | 仍是 `{id, task_id, ts, level, message, stream}`（`task_id` 属超集） | `API.md` §5 |

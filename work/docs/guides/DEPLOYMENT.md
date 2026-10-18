@@ -601,6 +601,11 @@ MLM_VERSION=1.0.1 docker compose -f docker-compose.release.yml up -d
 
 源码构建的部署没有 `pull` 这一步，走 §6.2 的 `docker compose up -d --build`。
 
+**升级后浏览器要不要强刷？** 不需要（从带 `Cache-Control: no-store` 的版本起）：静态前端不再让浏览器缓存，
+换镜像/重启容器后普通刷新就是新页面。**只有从更早版本（`/api` 与静态资源都没有 `no-store` 的版本）升级时**，
+浏览器可能还在用启发式缓存里的旧 JS，此时强制刷新一次即可（`Ctrl`/`Cmd` + `Shift` + `R`）。后端接口与数据卷
+不受影响，升级步骤本身没有变化。
+
 ### 6.5 升级后必做：确认媒体库路径仍可用
 
 **为什么**：v2 起**删除了**「允许的源/目标根目录」两个设置项（`allowed_source_roots` / `allowed_target_roots`）。
