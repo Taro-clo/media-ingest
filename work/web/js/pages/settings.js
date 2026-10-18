@@ -1045,6 +1045,9 @@ export async function render(container) {
       // 直接把话说在「当前密码」字段下面，而不是走「登录已失效」那套跳转提示。
       if (err && err.status === 401) {
         fail('set-pw-old', 'set.pw.err.old_wrong');
+        // 字段红字容易被浏览器自带的密码气泡/自动填充提示盖住，再补一条顶部提示，
+        // 保证"旧密码不对"这件事一定看得见。
+        toast(t('set.pw.err.old_wrong'), 'error');
         oldPw.focus();
         return;
       }
