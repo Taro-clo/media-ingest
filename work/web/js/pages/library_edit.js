@@ -888,7 +888,9 @@ export async function render(container, params) {
         }
       }
     } catch (err) {
-      const detail = err && err.data && err.data.detail;
+      // ApiError.detail 是响应体本身（{detail: …}）；权限预检失败时 detail.detail 是结构化对象。
+      const payload = err && err.detail;
+      const detail = payload && typeof payload === 'object' ? payload.detail : null;
       if (detail && typeof detail === 'object' && detail.code === 'permission_precheck') {
         showPermissionDialog(detail);
       } else if (!applyServerErrors(err)) {
