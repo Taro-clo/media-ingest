@@ -23,7 +23,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 审计 F-03：发布镜像前必须跑测试与语法检查（tag 推送不能绕过门禁）。
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node（前端语法检查用）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装测试依赖
+        working-directory: work
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pyyaml fastapi httpx uvicorn
+
+      - name: 语法检查
+        working-directory: work
+        run: python scripts/syntax-check.py
+
+      - name: pytest
+        working-directory: work
+        run: python -m pytest -q tests
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

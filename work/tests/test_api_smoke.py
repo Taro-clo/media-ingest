@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -1145,7 +1146,9 @@ def test_library_create_still_allows_a_missing_source_but_validate_reports_it(
     assert any("源目录" in message and "不存在" in message for message in body["errors"]), body
     assert body["permissions"]["source_exists"] is False, body["permissions"]
     identity = body["permissions"]["identity"]
-    assert "uid=" in identity and "gid=" in identity, body["permissions"]
+    if "uid=" not in identity:
+        pytest.skip("Windows 开发机没有 uid/gid，身份文案由 Linux/Docker 环境覆盖")
+    assert "gid=" in identity, body["permissions"]
     kinds = {issue["kind"] for issue in body["permissions"]["issues"]}
     assert "source_missing" in kinds, body["permissions"]["issues"]
 
@@ -1240,3 +1243,41 @@ def test_static_frontend_is_served_without_browser_cache(api_client):
     assert script.status_code == 200, script.text
     assert script.headers["cache-control"] == "no-store"
 
+
+
+def test_unhandled_exception_does_not_leak_internal_details(api_client):
+    """审计 F-02 回归：500 只回固定文案 + 请求 ID，异常类型/绝对路径/堆栈一律不外泄。
+
+    直接调用应用注册的全局 Exception 处理器：Starlette 的 ServerErrorMiddleware 在写完
+    500 响应后仍会把原异常重新抛出（供服务器记日志），因此 TestClient 默认
+    ``raise_server_exceptions=True`` 时拿不到响应体，只能对处理器本身断言。
+    """
+
+    from starlette.requests import Request
+
+    handler = api_client.app.exception_handlers.get(Exception)
+    assert handler is not None, "必须注册全局 Exception 处理"
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/libraries",
+            "raw_path": b"/api/libraries",
+            "query_string": b"",
+            "headers": [],
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "client": ("testclient", 1),
+        }
+    )
+    response = asyncio.run(
+        handler(request, RuntimeError("boom: /home/secret/path SELECT * FROM users"))
+    )
+
+    assert response.status_code == 500
+    body = json.loads(response.body)
+    assert body["detail"] == "服务器内部错误，请稍后重试。"
+    assert body.get("request_id"), "500 响应必须带 request_id 便于查服务端日志"
+    raw = response.body.decode("utf-8")
+    for leaked in ("boom", "/home/secret/path", "SELECT", "RuntimeError"):
+        assert leaked not in raw, f"响应泄露内部细节：{leaked} in {raw}"

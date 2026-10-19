@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### 修复：审计发现的 4 个问题（探针误删 / 500 泄露内部细节 / 发布无门禁 / 无 pytest 时 GBK 中断）
+
+**场景**：2026-10-19 对 `a3fc337` 做独立审计，确认 4 条成立（P1×1、P2×2、P3×1），全部为纵深防御类问题。
+
+- **F-01（P1）探针清扫不再误删用户文件**：`cleanup_probe_leftovers()` 旧实现按宽泛前缀
+  `.mlm_probe_` 删除，用户碰巧同前缀的媒体文件会被启动清扫删掉。现在只认**本程序真实产物格式**
+  （`.mlm_probe_<32 位小写 hex>.write` / `.mlm_probe_<pid>_<8 位小写 hex>.link`）的**普通文件**；
+  同前缀的文件、目录、符号链接一律保留（`app/paths.py` 新增 `is_own_probe_artifact()`，
+  扫描仍不跟随符号链接）。
+- **F-02（P2）未捕获异常不再把内部细节返回客户端**：旧 500 响应体是
+  `服务器内部错误：{type}: {exc}`（可能带绝对路径、SQL、配置细节）。现在固定返回
+  `{"detail": "服务器内部错误，请稍后重试。", "request_id": "<12 hex>"}`，异常类型/文本/堆栈只写
+  服务端日志（日志行带同一 `request_id` 便于对照）。
+- **F-03（P2）发布镜像前必须过测试门禁**：`.github/workflows/image.yml` 新增 `test` job
+  （语法检查 + `pytest -q tests`，Python 3.11 + Node 20），`build` 改为 `needs: test` —— 之前
+  tag 推送会直接构建发布镜像，测试失败也不拦。
+- **F-04（P3）无 pytest 时的零依赖 runner 不再被控制台编码打断**：`tests/_minipytest.py` 启动时把
+  stdout/stderr 的编码错误策略改为 `backslashreplace`；中文 Windows（GBK 控制台）遇到 `⇒`/emoji
+  不再抛 `UnicodeEncodeError` 把整轮测试打断（那是环境错误、不是用例失败）。
+- **测试**：`tests/test_paths.py` 新增"同前缀用户文件/目录/符号链接一个都不许删"回归（并收紧既有
+  清扫用例到真实格式）；`tests/test_api_smoke.py` 新增 500 泄露回归（直接断言全局异常处理器）；
+  顺带把两条 `uid=` 断言在 Windows 上改为 skip（Windows 没有 uid/gid，身份文案由 Linux/Docker 覆盖）。
+- **文档**：`docs/contracts/API.md` §1.3（500 形状）、`docs/contracts/ARCHITECTURE.md` §5.0 第 11 条
+  与 §6.4（探针清扫判据）、`docs/meta/TEST-MAP.md`（新增回归行与计数）同步。
+
 ### 变更：权限预检失败改为「保存失败」明细弹窗（原因 + 处理，PUID/PGID 优先）
 
 **场景**：源目录不可读、目标目录不可写时，后端原本返回一段很长的 400 文案（同一条消息里两次运行身份、

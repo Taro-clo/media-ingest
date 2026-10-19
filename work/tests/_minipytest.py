@@ -581,7 +581,26 @@ class MiniRunner:
         )
 
 
+def _safe_console_streams() -> None:
+    """把 stdout/stderr 的编码错误处理改为 ``backslashreplace``（审计 F-04）。
+
+    零依赖兜底 runner 会把测试名/跳过原因原样 ``print``；其中可能含 ``⇒``、emoji 等
+    字符，而中文 Windows 默认控制台是 GBK，直接抛 ``UnicodeEncodeError`` 会把整轮
+    测试打断（不是断言失败）。这里只改编码失败策略，不改变输出编码本身。
+    """
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (ValueError, OSError):
+            pass
+
+
 def run(tests_dir: str | os.PathLike, verbose: bool = True) -> int:
+    _safe_console_streams()
     # 让 conftest.py / test_*.py 里的 `import pytest` 解析到本模块（无 pytest 场景）。
     sys.modules.setdefault("pytest", sys.modules[__name__])
     return MiniRunner(Path(tests_dir), verbose=verbose).run()

@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -182,12 +183,20 @@ def create_app() -> FastAPI:
         return response
 
     # ---- 3) 未捕获异常：给前端一个稳定的 JSON 形状，而不是 HTML 堆栈
+    # 审计 F-02：异常类型/文本（常含绝对路径、SQL、配置细节）绝不回给客户端；
+    # 客户端只拿到固定文案 + 请求 ID，完整堆栈只写服务端日志。
     @app.exception_handler(Exception)
     async def unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("未处理的异常：%s %s", request.method, request.url.path)
+        request_id = uuid.uuid4().hex[:12]
+        logger.exception(
+            "未处理的异常 [%s]：%s %s", request_id, request.method, request.url.path
+        )
         return JSONResponse(
             status_code=500,
-            content={"detail": f"服务器内部错误：{type(exc).__name__}: {exc}"},
+            content={
+                "detail": "服务器内部错误，请稍后重试。",
+                "request_id": request_id,
+            },
         )
 
     # ---- 4) API 路由：**必须**先于静态目录注册（ARCHITECTURE §5.0 ② 路由挂载）

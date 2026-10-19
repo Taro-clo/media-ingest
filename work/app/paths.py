@@ -22,6 +22,7 @@ from __future__ import annotations
 import errno
 import os
 import posixpath
+import re
 import uuid
 from itertools import zip_longest
 from typing import Iterator, Mapping
@@ -31,6 +32,13 @@ from .config import settings
 #: 探针临时文件前缀：启动清扫与测试都依赖它，改名前先看 ``cleanup_probe_leftovers`` 的调用点。
 PROBE_PREFIX = ".mlm_probe_"
 PROBE_SUFFIX = ".link"
+
+#: 本程序真正会创建的两类探针临时文件名（``cleanup_probe_leftovers`` 只清这两类，
+#: 绝不按宽泛前缀误删用户文件 —— 见 2026-10-19 审计 F-01）：
+#: - 写权限探针：``.mlm_probe_<32 位 uuid hex>.write``
+#: - 硬链接探针：``.mlm_probe_<pid>_<8 位 uuid hex>.link``
+_PROBE_WRITE_RE = re.compile(r"^\.mlm_probe_[0-9a-f]{32}\.write$")
+_PROBE_LINK_RE = re.compile(r"^\.mlm_probe_[0-9]+_[0-9a-f]{8}\.link$")
 
 #: 有界递归参数（冻结）：真实媒体的源树是「源根 / 标题文件夹 / 文件」，
 #: 深度 3 足够；条目上限 512 保证在超大源根下也不会扫全盘。
@@ -562,20 +570,35 @@ def probe_media_access(source_dir: str, target_dir: str) -> dict:
     return report
 
 
+def is_own_probe_artifact(name: str) -> bool:
+    """名字是否是**本程序自己**创建的探针临时文件（严格格式匹配）。
+
+    审计 F-01：旧实现只按 ``.mlm_probe_`` 前缀清理，会把用户碰巧同前缀的普通文件
+    也删掉。这里改成只认两类真实产物格式；其它任何名字（哪怕前缀相同）一律不动。
+    """
+    return bool(_PROBE_WRITE_RE.match(name) or _PROBE_LINK_RE.match(name))
+
+
 def cleanup_probe_leftovers(directory: str) -> int:
-    """清扫 ``directory`` 里遗留的 ``.mlm_probe_*`` 临时文件（**不递归**）。
+    """清扫 ``directory`` 里遗留的**本程序探针**临时文件（**不递归**）。
 
     探针正常路径会自己删掉临时链接；但进程被 SIGKILL / 容器被强杀时可能残留。
     启动时对目标根扫一遍，探针前后也各扫一遍（自己那一个）。返回删除条数。
+
+    只删严格匹配 ``.mlm_probe_<32hex>.write`` 或 ``.mlm_probe_<pid>_<8hex>.link``
+    的**普通文件**（不跟随符号链接）；同前缀的其它文件/目录一律保留（审计 F-01）。
     """
     removed = 0
     try:
         with os.scandir(normalize(directory)) as listing:
-            victims = [e.path for e in listing if e.name.startswith(PROBE_PREFIX)]
+            victims = [e.path for e in listing if is_own_probe_artifact(e.name)]
     except OSError:
         return 0
     for victim in victims:
         try:
+            # 只清普通文件；符号链接/目录即使名字撞上也别碰（避免顺手删掉用户数据）。
+            if os.path.islink(victim) or not os.path.isfile(victim):
+                continue
             os.unlink(victim)
             removed += 1
         except OSError:

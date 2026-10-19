@@ -236,6 +236,11 @@ CREATE UNIQUE INDEX idx_link_records_library_folder ON link_records(library_id, 
     `libraries.permission_mode`（`0/1`）→ 执行器 → `script_adapter.run_hardlinks(...,
     permission_mode=…)` → `create_hard_links(..., permission_mode=…)`。边界与代价见 `BASELINE.md` §1.6
     与 **B13**；WebUI **从关到开**必须二次确认。
+11. **未捕获异常只回固定文案 + `request_id`**：`app/main.py` 的全局 `Exception` 处理器返回
+    `{"detail": "服务器内部错误，请稍后重试。", "request_id": "<12 hex>"}`，异常类型/文本/堆栈/绝对路径
+    **一律不进响应**（曾把 `{type}: {exc}` 原样返回，2026-10-19 审计 F-02）；完整堆栈按 `request_id`
+    写服务端日志。测试直接调用 `app.exception_handlers[Exception]` 断言（`ServerErrorMiddleware` 写完
+    响应后仍会重抛，`TestClient` 默认拿不到响应体）。
 
 ### 5.1 LibraryInput
 
@@ -295,7 +300,11 @@ settings: Settings                 # 单例
 
 ### 6.4 `app/paths.py`
 
-- `to_host`/`to_container`/`normalize`/`is_inside`/`existing_ancestor`/`check_cross_mounts`/`check_same_filesystem`/`probe_cross_filesystem`/`find_sample_file`/`cleanup_probe_leftovers`/`mount_id_for`/`check_same_mount`/`check_hardlink_support`/`snapshot_source_tree`/`verify_source_tree`。语义见 §2
+- `to_host`/`to_container`/`normalize`/`is_inside`/`existing_ancestor`/`check_cross_mounts`/`check_same_filesystem`/`probe_cross_filesystem`/`find_sample_file`/`cleanup_probe_leftovers`/`is_own_probe_artifact`/`mount_id_for`/`check_same_mount`/`check_hardlink_support`/`snapshot_source_tree`/`verify_source_tree`。语义见 §2
+- **探针清扫只认自己的产物（冻结）**：`cleanup_probe_leftovers()` 只删严格匹配
+  `.mlm_probe_<32 位小写 hex>.write` 或 `.mlm_probe_<pid>_<8 位小写 hex>.link` 的**普通文件**（不跟随
+  符号链接）。同前缀的普通文件/目录/符号链接一律保留 —— 旧实现按宽泛前缀删会误删用户文件
+  （2026-10-19 审计 F-01，`is_own_probe_artifact()` 是唯一判据）。
 
 ### 6.5 `app/script_adapter.py`
 

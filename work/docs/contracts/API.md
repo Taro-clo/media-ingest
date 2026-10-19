@@ -56,6 +56,10 @@
 {"detail": "跨挂载错误：源 /vol1/1000/Download/qbittorrent（挂载点 /vol1/1000/Download，mount ID 26）与目标根 /vol1/1000/Library（挂载点 /vol1/1000，mount ID 27）不是同一个挂载，os.link 会返回 EXDEV。本应用不会回退为复制文件。请把两个目录放到同一个宿主挂载下。"}
 ```
 
+> 📌 两种例外：① `422` 的 `detail` 是**数组**（见下表）；② 建库/改库的**权限预检**失败时
+> `detail` 是**结构化对象**（`{code,title,message,identity,issues[],hint}`，见 §3.4）——
+> 前端据此弹「保存失败」明细窗，`message` 仍是可直接展示的一句话。
+
 | 状态码 | 含义 |
 |---|---|
 | `200` | 成功 |
@@ -67,6 +71,7 @@
 | `404` | 对象不存在（如库 id、任务 id 不存在） |
 | `409` | 状态冲突（实例已初始化、媒体库重名、媒体库已停用、内置处理器不可删、任务当前状态不允许该操作） |
 | `422` | **请求体字段级校验失败**：`detail` 是**数组**，元素 `{"loc": ["body", "processor_id"], "msg": "中文说明", "type": "value_error.mlm"}`。出现在 `POST`/`PUT /api/libraries`、`POST`/`PUT /api/processors`（处理器 id 不存在、`log_file` 撞名、规格不合法等）。**没有 `field` 键** |
+| `500` | 未捕获的服务器内部错误：`{"detail": "服务器内部错误，请稍后重试。", "request_id": "<12 位十六进制>"}`。**异常类型/文本/堆栈/绝对路径一律不返回**，完整堆栈按 `request_id` 写服务端日志（审计 F-02） |
 
 > 📌 `422` 还有第二种形状：只有 `POST /api/processors/validate` 返回 `200` + `errors` 数组，元素是 `{"field": "naming.segments[0].param", "message": "…"}`（`field` 是点号路径字符串，可为空串）。两种形状的区别见 §3.4 与 §5.7.8。
 

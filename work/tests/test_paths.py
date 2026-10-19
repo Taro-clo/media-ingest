@@ -519,15 +519,56 @@ def test_probe_rejects_a_source_that_is_not_a_directory(paths_mod, tmp_path):
 
 
 def test_cleanup_probe_leftovers_removes_only_its_own_files(paths_mod, tmp_path):
-    """强杀留下的 ``.mlm_probe_*`` 要能清掉，别人的文件一个都不能碰。"""
-    (tmp_path / ".mlm_probe_123_ab.link").write_bytes(b"x")
+    """强杀留下的 ``.mlm_probe_*`` 要能清掉，别人的文件一个都不能碰。
+
+    审计 F-01：只认本程序的两类严格格式（写探针 ``.write`` / 硬链接探针 ``.link``），
+    同前缀的普通文件、目录、符号链接一律不动。
+    """
+    (tmp_path / ".mlm_probe_1234_deadbeef.link").write_bytes(b"x")
     (tmp_path / "keep.mkv").write_bytes(b"y")
 
     assert paths_mod.cleanup_probe_leftovers(str(tmp_path)) == 1
-    assert not (tmp_path / ".mlm_probe_123_ab.link").exists()
+    assert not (tmp_path / ".mlm_probe_1234_deadbeef.link").exists()
     assert (tmp_path / "keep.mkv").exists()
     assert paths_mod.cleanup_probe_leftovers(str(tmp_path)) == 0
     assert paths_mod.cleanup_probe_leftovers(str(tmp_path / "missing")) == 0
+
+
+def test_cleanup_probe_leftovers_never_deletes_user_files_with_the_same_prefix(
+    paths_mod, tmp_path
+):
+    """审计 F-01 回归：前缀相同但不是本程序产物格式的文件，一个都不许删。"""
+    user_files = [
+        ".mlm_probe_keep.mkv",
+        ".mlm_probe_2024_bonus.mkv",
+        ".mlm_probe_1_deadbeef.mkv",  # 像 link 但后缀不是 .link
+        ".mlm_probe_" + "a" * 32 + ".write.bak",  # 像写探针但多了后缀
+        ".mlm_probe_" + "g" * 32 + ".write",  # 非 hex 的 32 位
+    ]
+    for name in user_files:
+        (tmp_path / name).write_bytes(b"user media")
+    (tmp_path / ".mlm_probe_somedir").mkdir()
+    # 符号链接即使名字撞上真探针格式也不许删（避免顺手删掉用户的软链/数据）。
+    symlink_made = False
+    try:
+        (tmp_path / ".mlm_probe_4242_cafebabe.link").symlink_to(tmp_path / "keep-link.mkv")
+        symlink_made = True
+    except OSError:
+        pass  # Windows 无建符号链接权限时跳过这一段
+    real_write = tmp_path / (".mlm_probe_" + "0123456789abcdef" * 2 + ".write")
+    real_link = tmp_path / ".mlm_probe_4242_deadbeef.link"
+    real_write.write_bytes(b"probe")
+    real_link.write_bytes(b"probe")
+
+    removed = paths_mod.cleanup_probe_leftovers(str(tmp_path))
+
+    assert removed == 2, "只允许删掉两条真实格式的探针残留"
+    assert not real_write.exists() and not real_link.exists()
+    for name in user_files:
+        assert (tmp_path / name).exists(), f"用户文件被误删：{name}"
+    assert (tmp_path / ".mlm_probe_somedir").is_dir(), "同名目录不得删"
+    if symlink_made:
+        assert (tmp_path / ".mlm_probe_4242_cafebabe.link").is_symlink(), "符号链接不得删"
 
 
 def test_probe_sweeps_a_leftover_from_a_previous_kill(paths_mod, tmp_path):
