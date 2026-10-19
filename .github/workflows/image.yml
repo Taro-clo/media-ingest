@@ -50,6 +50,11 @@ jobs:
         working-directory: work
         run: python scripts/syntax-check.py
 
+      # 应用默认 DATA_DIR=/data（容器布局）；GitHub runner 是非 root，先把目录准备好，
+      # 否则引擎类用例会在写日志/建配置镜像时 Permission denied（不是用例失败）。
+      - name: 准备数据目录（DATA_DIR=/data）
+        run: sudo mkdir -p /data && sudo chown -R "$USER" /data
+
       - name: pytest
         working-directory: work
         run: python -m pytest -q tests
